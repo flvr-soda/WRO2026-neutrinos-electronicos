@@ -1,59 +1,58 @@
-# Terreneitor WRO Project
+# Neutrinos Electrónicos WRO 2026
 
-## Table of Contents
+## Tabla de contenidos
 
-- [Project Overview](#project-overview)
-- [Team Introduction](#team-introduction)
-- [Project Description](#project-description)
-- [Hardware Used](#hardware-used)
-- [Software and Libraries](#software-and-libraries)
-- [Competition Challenges](#competition-challenges)
+- [Documentación](#documentación)
+- [Introducción al equipo](#introducción-al-equipo)
+- [Descripción del proyecto](#descripcion-del-proyecto)
+- [Hardware Usado](#hardware-usado)
+- [Software y librerias](#software-y-librerias)
+- [Desafios de la competición](#desafios-de-la-competición)
 
-## Project Overview
+## Documentación
 
 ## Neutrinos Electrónicos
 
-| Name | Role | Responsibility |
-| :--- | :--- | :--- |
-|Mila|Coach|Strategy|
-|Ismael Armada|Programmer|codebase|
-|Sebastián Vera|Builder|Hardware|
-|Andrés|Builder|Hardware|
+| Nombre| Rol |
+| :--- | :--- |
+|Ismael Armada|Programador|
+|Sebastián Vera|Mecánico|
+|Andrés|Electricista|
 
-## Project Description
+## Descripción del proyecto
 
-- 
-- 
-- 
-
-## Hardware Used
-
-### Sensors
 - 
 - 
 - 
 
-### Actuators
+## Hardware Usado
+
+### Sensores
 - 
 - 
 - 
 
-### Other Components
+### Actuadores
 - 
 - 
 - 
 
-## Software and Libraries
-
-### Languages
-- 
-
-### Libraries
+### Otros
 - 
 - 
 - 
 
-## Competition Challenges
+## Software y librerias
+
+### Lenguajes
+- 
+
+### Librerias
+- 
+- 
+- 
+
+## Desafios de la competición
 
 1. 
 2. 
