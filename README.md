@@ -17,7 +17,7 @@
 | :--- | :--- |
 |Ismael Armada|Programador|
 |Sebastián Vera|Mecánico|
-|Andrés|Electricista|
+|Andrés Lugo|Electricista|
 
 ## Descripción del proyecto
 
