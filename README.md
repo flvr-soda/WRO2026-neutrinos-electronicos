@@ -21,31 +21,46 @@
 
 ## Descripción del proyecto
 
-- 
-- 
-- 
+- Documentación y codebase del Terreneitor, un vehículo autonomo para la competición en la World Robot Olympiad 2026.
 
-## Hardware Usado
+## Hardware Usado (19/03/2026)
+
+### Principal
+- (SBC)  Raspberry Pi 4 Model B - 1GB
+- (SBM) Arduino UNO
+
+### Arquitectura de Potencia
+- Bateria para motores
+- Baterias para Arduino y Raspberry
+- Estabilizador de voltaje Modelo XL4015
+- Cargador
+- Estructura para instalación de baterias
+- Dos interruptores (encendido y apagado del vehiculo y el start)
+- Fan 5V (Para Raspberry Pi 4)
 
 ### Sensores
-- 
-- 
-- 
+- Cámara OV5647 de 120°
+- Sensores de distancia (HC SR04)
+- Sensor de orientación MPU 6050 6° de libertad
+- LiDAR TF-Luna sobre servo sg90
+- Modulo sensor de velocidad encoder de 100 líneqas (fase desplazada):
+  Genera señales de cuadratura para medir velocidad y detectar dirección de giro
 
 ### Actuadores
-- 
-- 
-- 
+- Puente H MODELO BTS7960
+- MOTOR DC
+- SERVOMOTOR DE DIRECCIÓN (MG996R) 180°
 
 ### Otros
-- 
-- 
-- 
+- Cables/Cable USB
+- Estaño
+- Impresiones 3D
 
 ## Software y librerias
 
 ### Lenguajes
-- 
+- Python
+- C++ 
 
 ### Librerias
 - 
@@ -54,6 +69,6 @@
 
 ## Desafios de la competición
 
-1. 
+1. Implementar visión por computador para la identificación y sorteo de obstaculos. 
 2. 
 3. 
