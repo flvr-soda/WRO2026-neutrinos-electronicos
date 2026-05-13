@@ -63,12 +63,12 @@
 - C++ 
 
 ### Librerias
-- 
-- 
-- 
+- Pyyaml
+- OpenCV
+- Pyserial
 
 ## Desafios de la competición
 
 1. Implementar visión por computador para la identificación y sorteo de obstaculos. 
-2. 
-3. 
+2. Lazo de control de tracción para avance del robot a una velocidad constante sin importar nivel de carga de la bateria.
+3. Ensamble de estructuras de baterias y fijación del motor principal.
