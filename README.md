@@ -5,7 +5,7 @@
 - [Neutrinos Electrónicos WRO 2026](#neutrinos-electrónicos-wro-2026)
   - [Tabla de contenidos](#tabla-de-contenidos)
   - [Documentación](#documentación)
-  - [Introducción](#introducción)
+  - [Introducción del equipo](#introducción-del-equipo)
   - [Descripción del proyecto](#descripción-del-proyecto)
   - [Hardware Usado (19/03/2026)](#hardware-usado-19032026)
     - [Principal](#principal)
@@ -23,7 +23,7 @@
 
 ## Documentación
 
-## Introducción
+## Introducción del equipo
 
 | Nombre| Rol |
 | :--- | :--- |
