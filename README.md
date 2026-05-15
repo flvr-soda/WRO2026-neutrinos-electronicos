@@ -96,8 +96,8 @@
                 [LiDAR TF-Luna] ---> (Mapeo de Distancia Lateral para Parking) 
                                             |
                                             v
-                        (Máquina de Estados Finitos) 
-                          Config: Carga config.yaml  
+                              (Máquina de Estados Finitos) 
+                                Config: Carga config.yaml  
                 |                                                       | 
                 ---------------------------------------------------------
                                             |
