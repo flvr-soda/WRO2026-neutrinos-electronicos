@@ -1,15 +1,19 @@
 import cv2
-import time
 import logging
 import sys
+
+# Importar configuraciones y utilidades de hardware
 from src.config_loader import ConfigLoader
 from src.comms_arduino import ArduinoComms
 from src.vision import VisionProcessor
 
+# Importar la Máquina de Estados y sus Estados Concretos
+from estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def main():
-    logging.info("Iniciando Sistema Terreneitor WRO 2026 MVP")
+    logging.info("Iniciando Sistema Terreneitor WRO 2026 MVP (FSM Modular)")
     
     # 1. Cargar configuración
     config_loader = ConfigLoader("config.yaml")
@@ -20,55 +24,48 @@ def main():
     velocidades = config_loader.get_velocidades()
     angulos = config_loader.get_angulos_servo()
     
-    # 2. Inicializar Comunicaciones
+    # 2. Inicializar hardware y componentes
     arduino = ArduinoComms(port="/dev/ttyUSB0", baudrate=115200)
-    
-    # 3. Inicializar Procesamiento de Visión
     vision = VisionProcessor(config_loader)
     
-    # 4. Inicializar Cámara (0 por defecto, ajusta según corresponda)
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        logging.warning("No se pudo abrir la cámara, se ejecutará en modo simulado o sin video.")
-        # Aquí podrías cargar un video de prueba si es necesario.
-        
+        logging.warning("No se pudo abrir la cámara, el procesamiento visual retornará 'NINGUNO'.")
+
+    # 3. Construir el contexto global para la FSM
+    contexto = {
+        "config_loader": config_loader,
+        "velocidades": velocidades,
+        "angulos": angulos,
+        "arduino": arduino,
+        "vision": vision,
+        "cap": cap
+    }
+
+    # 4. Inicializar y poblar la Máquina de Estados
+    fsm = MaquinaDeEstados(contexto)
+    fsm.agregar_estado("INICIO", EstadoInicio())
+    fsm.agregar_estado("NAVEGACION", EstadoNavegacion())
+    fsm.agregar_estado("ESTACIONAR", EstadoEstacionar())
+    fsm.agregar_estado("FIN", EstadoFin())
+
+    # 5. Configurar el estado de arranque
+    fsm.set_estado_inicial("INICIO")
+
+    # 6. Ciclo de ejecución
     try:
-        while True:
-            # Leer frame de la cámara
-            ret, frame = cap.read()
-            if not ret:
-                logging.error("No se pudo leer el frame. Reintentando...")
-                time.sleep(0.1)
-                continue
-            
-            # Detectar color
-            evento_color = vision.procesar_frame(frame)
-            
-            # Decidir velocidad y ángulo
-            if evento_color == "ROJO":
-                vel = velocidades.get("evasion", 40)
-                ang = angulos.get("evasion_roja", 130) # Evasión izquierda
-            elif evento_color == "VERDE":
-                vel = velocidades.get("evasion", 40)
-                ang = angulos.get("evasion_verde", 50) # Evasión derecha
-            else:
-                vel = velocidades.get("crucero", 60)
-                ang = angulos.get("recto", 90)
-                
-            # Enviar comando al Arduino
-            arduino.enviar_comando(vel, ang)
-            
-            # Pequeña pausa para no saturar CPU y el puerto serial
-            time.sleep(0.05)
-            
+        fsm.run()
     except KeyboardInterrupt:
-        logging.info("Interrupción por teclado (Ctrl+C). Deteniendo...")
+        logging.info("Interrupción por teclado (Ctrl+C). Forzando estado FIN...")
+        # Instanciar el estado fin directamente como mecanismo de seguridad
+        estado_emergencia = EstadoFin()
+        estado_emergencia.enter(contexto)
+        estado_emergencia.ejecutar(contexto)
+        estado_emergencia.exit(contexto)
     finally:
-        # Apagar motores
-        if arduino.serial_conn and arduino.serial_conn.is_open:
-            arduino.enviar_comando(0, angulos.get("recto", 90))
+        # Limpieza de recursos global
         cap.release()
-        logging.info("Sistema apagado de forma segura.")
+        logging.info("Recursos de hardware liberados.")
 
 if __name__ == "__main__":
     main()
