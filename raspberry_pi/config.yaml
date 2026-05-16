@@ -1,0 +1,18 @@
+velocidades:
+  crucero: 60
+  evasion: 40
+
+angulos_servo:
+  recto: 90
+  evasion_roja: 130 # Izquierda
+  evasion_verde: 50 # Derecha
+
+hsv_rojo:
+  lower: [0, 120, 70]
+  upper: [10, 255, 255]
+  lower2: [170, 120, 70]
+  upper2: [180, 255, 255]
+
+hsv_verde:
+  lower: [40, 40, 40]
+  upper: [80, 255, 255]
