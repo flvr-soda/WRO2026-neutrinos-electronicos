@@ -30,7 +30,15 @@ void parsearComando(String comando) {
     String angStr = comando.substring(idxA + 3);
     
     // Convertir a enteros
-    velocidadActual = velStr.toInt();
-    anguloActual = angStr.toInt();
+    int nuevaVel = velStr.toInt();
+    int nuevoAng = angStr.toInt();
+    
+    // toInt() retorna 0 si la cadena es inválida. Asegurarnos que no sea basura.
+    if (nuevaVel == 0 && velStr != "0" && velStr != "0\r") return;
+    if (nuevoAng == 0 && angStr != "0" && angStr != "0\r") return;
+    
+    velocidadActual = nuevaVel;
+    anguloActual = nuevoAng;
+    ultimoComandoMs = millis(); // Actualizar el watchdog
   }
 }

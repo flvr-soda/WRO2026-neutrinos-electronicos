@@ -16,3 +16,19 @@ hsv_rojo:
 hsv_verde:
   lower: [40, 40, 40]
   upper: [80, 255, 255]
+
+hsv_magenta:
+  lower: [140, 50, 50]
+  upper: [170, 255, 255]
+
+competicion:
+  modo_reto: "obstaculos" # "abierto" o "obstaculos"
+  sentido_giro: "horario" # "horario" o "antihorario"
+  max_vueltas: 3
+
+vision:
+  min_area: 500
+
+lidar:
+  pin_servo: 18
+  distancia_giro_cm: 50.0

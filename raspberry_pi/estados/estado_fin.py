@@ -9,11 +9,14 @@ class EstadoFin(Estado):
 
     def ejecutar(self, contexto: dict) -> str:
         arduino = contexto.get("arduino")
-        angulos = contexto.get("angulos")
+        angulos = contexto.get("angulos", {})
         
         # Detener inmediatamente motores y centrar servo
-        if arduino and arduino.serial_conn and arduino.serial_conn.is_open:
-            arduino.enviar_comando(0, angulos.get("recto", 90))
+        try:
+            if arduino and arduino.serial_conn and arduino.serial_conn.is_open:
+                arduino.enviar_comando(0, angulos.get("recto", 90))
+        except Exception as e:
+            logging.error(f"Error al enviar comando de detención: {e}")
             
         logging.info("Motores detenidos. Carrera finalizada.")
         

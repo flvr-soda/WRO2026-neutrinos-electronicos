@@ -6,6 +6,7 @@ import sys
 from src.config_loader import ConfigLoader
 from src.comms_arduino import ArduinoComms
 from src.vision import VisionProcessor
+from src.lidar import TFLunaLidar
 
 # Importar la Máquina de Estados y sus Estados Concretos
 from estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
@@ -27,6 +28,7 @@ def main():
     # 2. Inicializar hardware y componentes
     arduino = ArduinoComms(port="/dev/ttyUSB0", baudrate=115200)
     vision = VisionProcessor(config_loader)
+    lidar = TFLunaLidar(port="/dev/serial0", baudrate=115200)
     
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -39,6 +41,7 @@ def main():
         "angulos": angulos,
         "arduino": arduino,
         "vision": vision,
+        "lidar": lidar,
         "cap": cap
     }
 
@@ -64,7 +67,10 @@ def main():
         estado_emergencia.exit(contexto)
     finally:
         # Limpieza de recursos global
-        cap.release()
+        if arduino:
+            arduino.cerrar()
+        if cap:
+            cap.release()
         logging.info("Recursos de hardware liberados.")
 
 if __name__ == "__main__":

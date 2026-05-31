@@ -31,6 +31,8 @@
 |Sebastián Vera|Mecánico|
 |Andrés Lugo|Electricista|
 
+<img src="docs/misc/team.jpeg" alt="Foto del equipo" width="500" align="center">
+
 ## Descripción del proyecto
 
 - Paradigma Seleccionado (Cerebro + Sistema Nervioso): Se descarta (POR AHORA) el uso de múltiples Arduinos para evitar problemas de latencia crítica en la transmisión de datos. Se mantiene un sistema híbrido centralizado: Raspberry Pi 4 como nodo maestro de alta velocidad y Arduino UNO como controlador dedicado de hardware en tiempo real.

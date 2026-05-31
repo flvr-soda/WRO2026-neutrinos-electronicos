@@ -33,7 +33,10 @@ class TFLunaLidar:
 
         try:
             # Buscar el inicio de la trama (0x59, 0x59)
-            while True:
+            max_intentos = 50
+            intentos = 0
+            while intentos < max_intentos:
+                intentos += 1
                 if self.serial_conn.in_waiting >= 9:
                     # Leer un byte
                     b1 = self.serial_conn.read(1)
