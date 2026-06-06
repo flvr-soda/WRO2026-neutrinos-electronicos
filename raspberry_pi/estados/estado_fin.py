@@ -11,7 +11,7 @@ class EstadoFin(Estado):
         arduino = contexto.get("arduino")
         angulos = contexto.get("angulos", {})
         
-        # Detener inmediatamente motores y centrar servo
+        # --- Detener Motores y Centrar Servo ---
         try:
             if arduino and arduino.serial_conn and arduino.serial_conn.is_open:
                 arduino.enviar_comando(0, angulos.get("recto", 90))
@@ -20,7 +20,7 @@ class EstadoFin(Estado):
             
         logging.info("Motores detenidos. Carrera finalizada.")
         
-        # Se requiere salir de la FSM
+        # --- Salir de la FSM ---
         return "SALIR"
 
     def exit(self, contexto: dict):

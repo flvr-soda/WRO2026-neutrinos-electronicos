@@ -7,6 +7,7 @@ from src.config_loader import ConfigLoader
 from src.comms_arduino import ArduinoComms
 from src.vision import VisionProcessor
 from src.lidar import TFLunaLidar
+from estrategias import EstrategiaNormal
 
 # Importar la Máquina de Estados y sus Estados Concretos
 from estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
@@ -28,7 +29,23 @@ def main():
     # 2. Inicializar hardware y componentes
     arduino = ArduinoComms(port="/dev/ttyUSB0", baudrate=115200)
     vision = VisionProcessor(config_loader)
-    lidar = TFLunaLidar(port="/dev/serial0", baudrate=115200)
+    
+    # Obtener configuración del LiDAR
+    lidar_config = config_loader.get_lidar()
+    pin_servo = lidar_config.get("pin_servo", 18)
+    lidar = TFLunaLidar(port="/dev/serial0", baudrate=115200, pin_servo=pin_servo)
+    
+    # Cargar estrategia de navegación (para regla sorpresa)
+    comp_config = config_loader.get_competicion()
+    estrategia_nombre = comp_config.get("estrategia_activa", "normal")
+    
+    if estrategia_nombre == "normal":
+        estrategia = EstrategiaNormal()
+        logging.info("Estrategia de navegación: Normal")
+    else:
+        # Por defecto usar estrategia normal si no se reconoce el nombre
+        estrategia = EstrategiaNormal()
+        logging.warning(f"Estrategia '{estrategia_nombre}' no reconocida. Usando 'normal'.")
     
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -42,7 +59,8 @@ def main():
         "arduino": arduino,
         "vision": vision,
         "lidar": lidar,
-        "cap": cap
+        "cap": cap,
+        "estrategia": estrategia
     }
 
     # 4. Inicializar y poblar la Máquina de Estados
@@ -69,6 +87,8 @@ def main():
         # Limpieza de recursos global
         if arduino:
             arduino.cerrar()
+        if lidar:
+            lidar.cerrar()
         if cap:
             cap.release()
         logging.info("Recursos de hardware liberados.")

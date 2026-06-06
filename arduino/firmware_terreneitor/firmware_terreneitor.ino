@@ -63,12 +63,14 @@ void loop() {
 }
 
 void enviarTelemetria() {
-  // Formato: T:RPM:x;CMS:y;A:z;
+  // Formato: T:RPM:x;CMS:y;DIST:z;A:w;
   float rpm = (velocidadActualCmS * 60.0f) / (3.14159265f * DIAMETRO_RUEDA_CM);
   Serial.print("T:RPM:");
   Serial.print((int)rpm);
   Serial.print(";CMS:");
   Serial.print((int)velocidadActualCmS);
+  Serial.print(";DIST:");
+  Serial.print((int)distanciaTotalCm);
   Serial.print(";A:");
   Serial.print(anguloActual);
   Serial.println(";");

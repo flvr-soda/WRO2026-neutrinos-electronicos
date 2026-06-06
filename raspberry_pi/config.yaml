@@ -25,6 +25,16 @@ competicion:
   modo_reto: "obstaculos" # "abierto" o "obstaculos"
   sentido_giro: "horario" # "horario" o "antihorario"
   max_vueltas: 3
+  perimetro_pista_cm: 1200 # Perímetro aproximado del circuito en cm (ajustar según pista real)
+  estrategia_activa: "normal" # "normal" o "sorpresa" (para regla sorpresa en internacional)
+  tiempo_limite_segundos: 180 # Límite de tiempo de 3 minutos (180 segundos) según regla 9.25.1
+  distancia_seccion_arranque_cm: 300 # Distancia desde inicio hasta sección de arranque (Regla 9.22)
+  retorno_arranque_habilitado: true # Habilitar retorno a sección de arranque después de 3 vueltas
+  distancia_seccion_meta_cm: 300 # Distancia desde inicio hasta sección de meta (Regla 9.25.2, Reto Abierto)
+  deteccion_violacion_senales: true # Habilitar detección de violación de señales (Regla 9.25.5)
+
+hardware:
+  pin_boton_inicio: 17 # GPIO pin para botón de inicio físico (Regla 9.11)
 
 vision:
   min_area: 500
@@ -32,3 +42,8 @@ vision:
 lidar:
   pin_servo: 18
   distancia_giro_cm: 50.0
+  umbral_hueco_cm: 80.0  # Distancia mínima para considerar un hueco válido
+  distancia_pared_cm: 30.0  # Distancia objetivo a la pared al estacionar
+  angulo_escaneo_inicio: 45
+  angulo_escaneo_fin: 135
+  paso_escaneo: 15

@@ -38,6 +38,7 @@ extern unsigned long ultimoComandoMs;
 extern volatile long encoderTicks;
 extern float velocidadActualCmS;
 extern float velocidadObjetivoCmS;
+extern float distanciaTotalCm;
 
 // Constantes de seguridad
 const unsigned long WATCHDOG_TIMEOUT_MS = 500;

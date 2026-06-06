@@ -4,6 +4,7 @@
 volatile long encoderTicks = 0;
 float velocidadActualCmS = 0.0;
 float velocidadObjetivoCmS = 0.0;
+float distanciaTotalCm = 0.0;
 static unsigned long ultimaMedicionUs = 0;
 
 // Interrupt Service Routine (ISR) para el Encoder
@@ -46,5 +47,8 @@ void actualizarVelocidad() {
   float deltaSegundos = (float)deltaUs / 1000000.0f;
   
   velocidadActualCmS = distanciaCm / deltaSegundos;
+  
+  // Acumular distancia total para conteo de vueltas
+  distanciaTotalCm += distanciaCm;
 }
 

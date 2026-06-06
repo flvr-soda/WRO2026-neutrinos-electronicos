@@ -65,6 +65,9 @@ class ConfigLoader:
     def get_competicion(self):
         return self.config.get('competicion', {})
 
+    def get_hardware(self):
+        return self.config.get('hardware', {})
+
     def get_vision(self):
         return self.config.get('vision', {})
 
