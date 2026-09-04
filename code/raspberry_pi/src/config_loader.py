@@ -74,6 +74,11 @@ class VehiculoConfig:
     ancho_atras_cm: float = 17.0
     radio_giro_cm: float = 8.5
 
+@dataclass
+class SerialPortsConfig:
+    arduino: str = '/dev/ttyUSB0'
+    lidar: str = '/dev/serial0'
+
 class ConfigLoader:
     def __init__(self, config_filename="config.yaml"):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -199,6 +204,13 @@ class ConfigLoader:
             radio_giro_cm=float(max(5.0, min(20.0, veh_raw.get('radio_giro_cm', 8.5))))
         )
 
+        # 10. Serial Ports
+        serial_raw = self.config.get('serial_ports', {})
+        self.serial_ports = SerialPortsConfig(
+            arduino=str(serial_raw.get('arduino', '/dev/ttyUSB0')),
+            lidar=str(serial_raw.get('lidar', '/dev/serial0'))
+        )
+
     # Métodos de compatibilidad hacia atrás (devuelven diccionarios de la clase de datos)
     def get_velocidades(self) -> dict:
         return self.velocidades.__dict__.copy()
@@ -232,3 +244,6 @@ class ConfigLoader:
 
     def get_lidar(self) -> dict:
         return self.lidar.__dict__.copy()
+
+    def get_serial_ports(self) -> dict:
+        return self.serial_ports.__dict__.copy()

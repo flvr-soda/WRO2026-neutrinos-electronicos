@@ -65,3 +65,7 @@ vehiculo:
   ancho_frente_cm: 15.0  # Ancho del eje delantero
   ancho_atras_cm: 17.0  # Ancho del eje trasero
   radio_giro_cm: 8.5  # Radio de giro aproximado (mitad del ancho máximo)
+
+serial_ports:
+  arduino: /dev/ttyUSB0  # Puerto serial para Arduino
+  lidar: /dev/serial0    # Puerto serial para LiDAR TF-Luna

@@ -21,8 +21,8 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 2. Los scripts deben tener permisos de ejecución:
    ```bash
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA/start_emergency.sh
+      chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
+      chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA/start_emergency.sh
    ```
 
 ## Instalación del Servicio
