@@ -1,0 +1,25 @@
+[Unit]
+Description=WRO Robot - Sistema de Emergencia
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/EMERGENCIA
+ExecStart=/home/pi/WRO2026-neutrinos-electronicos/EMERGENCIA/start_emergency.sh
+Restart=always
+RestartSec=10
+
+# Variables de entorno para cámara
+Environment="LD_LIBRARY_PATH=/opt/vc/lib"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wro-emergency
+
+# Seguridad
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

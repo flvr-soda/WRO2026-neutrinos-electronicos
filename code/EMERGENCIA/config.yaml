@@ -1,0 +1,21 @@
+# Configuración simplificada para SISTEMA DE EMERGENCIA
+# Navegación simple por paredes negras - 3 vueltas al circuito
+
+# Parámetros de navegación
+navegacion:
+  vueltas_objetivo: 3
+  velocidad_crucero: 50      # Velocidad normal de crucero (-100 a 100)
+  velocidad_giro: 40         # Velocidad durante giros
+  angulo_recto: 90           # Ángulo para ir recto
+  angulo_giro_izquierda: 130 # Ángulo para girar izquierda
+  angulo_giro_derecha: 50    # Ángulo para girar derecha
+  duracion_giro_seg: 1.5     # Duración del giro en esquina (segundos)
+
+# Parámetros de visión
+vision:
+  umbral_negro: 50           # Umbral para detectar negro (0-255)
+  region_interes_y: 300      # Línea de escaneo vertical (desde arriba)
+  ancho_seguro: 100          # Pixeles de margen en el centro
+  ancho_frame: 640
+  alto_frame: 480
+  formato: "RGB888"
