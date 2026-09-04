@@ -10,13 +10,8 @@ import time
 import sys
 import os
 
-# Bypass preview imports for headless operation
-import picamera2.previews
-picamera2.previews.DrmPreview = None
-picamera2.previews.NullPreview = None
-picamera2.previews.QtGlPreview = None
-picamera2.previews.QtGlPreviewDirect = None
-picamera2.previews.QtPreview = None
+# Monkey-patch to prevent pykms import in headless mode
+sys.modules['kms'] = sys.modules['pykms'] = type(sys)('pykms')
 
 from picamera2 import Picamera2
 
