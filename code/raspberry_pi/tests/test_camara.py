@@ -6,10 +6,19 @@ Prueba captura de frames y detección de colores HSV
 
 import cv2
 import numpy as np
-from picamera2 import Picamera2
 import time
 import sys
 import os
+
+# Bypass preview imports for headless operation
+import picamera2.previews
+picamera2.previews.DrmPreview = None
+picamera2.previews.NullPreview = None
+picamera2.previews.QtGlPreview = None
+picamera2.previews.QtGlPreviewDirect = None
+picamera2.previews.QtPreview = None
+
+from picamera2 import Picamera2
 
 # Agregar path para importar ConfigLoader
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
