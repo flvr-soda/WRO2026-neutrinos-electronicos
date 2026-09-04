@@ -18,6 +18,12 @@ class MockPixelFormat:
     XBGR8888 = 3
     ARGB8888 = 4
     ABGR8888 = 5
+    BGR888 = 6
+    BGR565 = 7
+    YUYV = 8
+    UYVY = 9
+    NV12 = 10
+    YUV420 = 11
 
 class MockPyKMS:
     PixelFormat = MockPixelFormat
