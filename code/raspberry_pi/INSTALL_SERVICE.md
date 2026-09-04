@@ -13,7 +13,7 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 1. El entorno virtual debe estar creado y con las dependencias instaladas:
    ```bash
-   cd /home/pi/WRO2026-neutrinos-electronicos/raspberry_pi
+   cd /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
    python3 -m venv env
    source env/bin/activate
    pip install -r requirements.txt
@@ -21,8 +21,8 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 2. Los scripts deben tener permisos de ejecución:
    ```bash
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/raspberry_pi/start_robot.sh
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/EMERGENCIA/start_emergency.sh
+   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
+   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA/start_emergency.sh
    ```
 
 ## Instalación del Servicio
@@ -31,7 +31,7 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 1. **Copiar el archivo de servicio al directorio de systemd:**
    ```bash
-   sudo cp /home/pi/WRO2026-neutrinos-electronicos/raspberry_pi/wro-robot.service /etc/systemd/system/
+   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/wro-robot.service /etc/systemd/system/
    ```
 
 2. **Recargar la configuración de systemd:**
@@ -58,7 +58,7 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 1. **Copiar el archivo de servicio al directorio de systemd:**
    ```bash
-   sudo cp /home/pi/WRO2026-neutrinos-electronicos/EMERGENCIA/wro-emergency.service /etc/systemd/system/
+   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA/wro-emergency.service /etc/systemd/system/
    ```
 
 2. **Recargar la configuración de systemd:**
@@ -140,12 +140,12 @@ sudo systemctl disable wro-emergency.service
 ### El servicio no inicia:
 1. Verificar que el entorno virtual existe:
    ```bash
-   ls -la /home/pi/WRO2026-neutrinos-electronicos/raspberry_pi/env/
+   ls -la /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/env/
    ```
 
 2. Verificar que el script tiene permisos de ejecución:
    ```bash
-   ls -la /home/pi/WRO2026-neutrinos-electronicos/raspberry_pi/start_robot.sh
+   ls -la /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
    ```
 
 3. Revisar los logs para errores:

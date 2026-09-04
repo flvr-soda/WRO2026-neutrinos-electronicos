@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/raspberry_pi
-ExecStart=/home/pi/WRO2026-neutrinos-electronicos/raspberry_pi/start_robot.sh
+WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
+ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
 Restart=always
 RestartSec=10
 
