@@ -10,8 +10,16 @@ import time
 import sys
 import os
 
-# Monkey-patch to prevent pykms import in headless mode
-sys.modules['kms'] = sys.modules['pykms'] = type(sys)('pykms')
+# Mock pykms module for headless operation
+class MockPixelFormat:
+    pass
+
+class MockPyKMS:
+    PixelFormat = MockPixelFormat
+    PixelFormats = MockPixelFormat
+
+sys.modules['kms'] = MockPyKMS()
+sys.modules['pykms'] = MockPyKMS()
 
 from picamera2 import Picamera2
 
