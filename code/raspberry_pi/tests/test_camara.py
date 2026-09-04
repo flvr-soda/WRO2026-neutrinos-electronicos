@@ -12,7 +12,12 @@ import os
 
 # Mock pykms module for headless operation
 class MockPixelFormat:
-    pass
+    RGB888 = 0
+    RGB565 = 1
+    XRGB8888 = 2
+    XBGR8888 = 3
+    ARGB8888 = 4
+    ABGR8888 = 5
 
 class MockPyKMS:
     PixelFormat = MockPixelFormat
