@@ -26,17 +26,15 @@ class MPUTester:
         
     def setup(self):
         """Inicializa comunicación con Arduino"""
-        serial_ports_config = self.config_loader.get_serial_ports() if self.config_loader else {}
-        arduino_port = serial_ports_config.get('arduino', '/dev/ttyUSB0')
-        
-        self.arduino = ArduinoComms(port=arduino_port, baudrate=115200)
+        # ArduinoComms auto-detecta el primer puerto disponible
+        self.arduino = ArduinoComms(baudrate=115200)
         time.sleep(2)  # Esperar estabilización
         
         if self.arduino.esta_conectado():
-            print(f"Conectado a Arduino en {arduino_port}")
+            print(f"Conectado a Arduino en {self.arduino.port}")
             return True
         else:
-            print(f"Error: No se pudo conectar a Arduino en {arduino_port}")
+            print(f"Error: No se pudo conectar a Arduino")
             return False
         
     def leer_telemetria(self):
