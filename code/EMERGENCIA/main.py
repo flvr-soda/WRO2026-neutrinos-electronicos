@@ -29,7 +29,8 @@ BAUD_LIDAR = 115200
 BAUD_ARDUINO = 115200
 
 # Botón de inicio físico (Regla WRO 9.11)
-PIN_BOTON_INICIO = 23   # GPIO 23 (Pin físico 16)
+# Compartido con el sistema principal - GPIO 23 (Pin físico 16)
+PIN_BOTON_INICIO = 23
 
 # Parámetros de navegación
 VUELTAS_OBJETIVO = 3

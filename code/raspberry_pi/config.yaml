@@ -35,7 +35,7 @@ competicion:
   deteccion_violacion_senales: true # Habilitar detección de violación de señales (Regla 9.25.5)
 
 hardware:
-  pin_boton_inicio: 23 # GPIO pin para botón de inicio físico (Regla 9.11) - Physical Pin 16
+  pin_boton_inicio: 23 # GPIO pin para botón de inicio físico (Regla 9.11) - Physical Pin 16 - Compartido con sistema de emergencia
 
 vision:
   min_area: 500

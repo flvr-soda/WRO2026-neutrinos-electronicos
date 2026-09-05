@@ -1,0 +1,2 @@
+# Dependencias para el sistema de emergencia
+gpiozero>=1.6.2

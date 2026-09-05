@@ -1,0 +1,8 @@
+# Configuración del Sistema de Emergencia WRO
+
+# Modo de operación
+modo: "abierto"  # "abierto" para main.py (reto abierto), "obstaculos" para main_obstaculos.py (reto de obstáculos)
+
+# Configuración de hardware
+hardware:
+  pin_boton_inicio: 23  # GPIO 23 (Pin físico 16) - Compartido con sistema principal
