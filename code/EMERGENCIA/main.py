@@ -56,7 +56,7 @@ TIEMPO_COOLDOWN_ESQUINA_SEG = 1.4 # Tiempo mínimo entre detección de esquinas 
 FRECUENCIA_CONTROL_HZ = 40    # Tasa del bucle principal
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 logger = logging.getLogger("EMERGENCIA_LIDAR")
@@ -143,16 +143,18 @@ class DirectArduino:
     def enviar(self, velocidad: int, angulo: int):
         """Envía comando en formato V:<vel>;A:<ang>\n"""
         if not self.conn or not self.conn.is_open:
+            logger.warning("Arduino no conectado, no se puede enviar comando")
             return
-        
+
         # Clamp de seguridad
         velocidad = max(-100, min(100, int(velocidad)))
         angulo = max(40, min(140, int(angulo)))
-        
+
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
             self.conn.write(comando.encode('utf-8'))
             self.conn.flush()
+            logger.debug(f"Enviado a Arduino: {comando.strip()}")
         except Exception as e:
             logger.error(f"Error enviando comando a Arduino: {e}")
 
