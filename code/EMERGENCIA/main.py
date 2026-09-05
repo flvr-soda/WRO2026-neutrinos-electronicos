@@ -136,6 +136,10 @@ class DirectArduino:
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             time.sleep(1.8)  # Tiempo de reinicio del bootloader de Arduino
             logger.info(f"Arduino conectado en {self.port}")
+
+            # Limpiar buffer de recepción
+            self.conn.reset_input_buffer()
+            self.conn.reset_output_buffer()
         except Exception as e:
             logger.error(f"Error conectando a Arduino en {self.port}: {e}")
             self.conn = None
@@ -157,6 +161,21 @@ class DirectArduino:
             logger.debug(f"Enviado a Arduino: {comando.strip()}")
         except Exception as e:
             logger.error(f"Error enviando comando a Arduino: {e}")
+
+    def leer_telemetria(self):
+        """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
+        if not self.conn or not self.conn.is_open:
+            return None
+
+        try:
+            if self.conn.in_waiting > 0:
+                linea = self.conn.readline().decode('utf-8', errors='ignore').strip()
+                if linea:
+                    logger.debug(f"Telemetría Arduino: {linea}")
+                    return linea
+        except Exception as e:
+            logger.debug(f"Error leyendo telemetría: {e}")
+        return None
 
     def frenar(self):
         self.enviar(0, ANGULO_DIRECCION_RECTO)
@@ -240,6 +259,9 @@ class EmergencyLidarRunner:
             while self.esquinas_completadas < TOTAL_ESQUINAS:
                 t_inicio_iter = time.monotonic()
                 ahora = time.monotonic()  # Usar reloj monotónico en todo el bucle (inmune a NTP)
+
+                # Leer telemetría del Arduino para verificar comunicación
+                self.arduino.leer_telemetria()
 
                 # 1. Leer distancia frontal del LiDAR
                 distancia = self.lidar.leer_distancia_cm()
