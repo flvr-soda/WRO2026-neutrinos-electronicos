@@ -1,4 +1,3 @@
-# Dependencias para el sistema de emergencia
 gpiozero>=1.6.2
 pyserial>=3.5
 pyyaml>=6.0
