@@ -221,11 +221,17 @@ class EmergencyLidarRunner:
 
         if self.boton is not None:
             logger.info(f"Esperando activación del switch de inicio (GPIO {PIN_BOTON_INICIO})...")
+            logger.info(f"Estado inicial del switch: {'ACTIVO' if self.boton.is_pressed else 'INACTIVO'}")
             try:
                 # Esperar a que el switch se active (flanco de subida)
                 switch_state = False
+                counter = 0
                 while True:
                     current_state = self.boton.is_pressed
+                    # Log cada 20 iteraciones para no saturar
+                    counter += 1
+                    if counter % 20 == 0:
+                        logger.debug(f"Estado actual del switch: {'ACTIVO' if current_state else 'INACTIVO'}")
                     # Detectar flanco de subida: estaba apagado y ahora está encendido
                     if current_state and not switch_state:
                         logger.info("¡Switch de inicio activado! Arrancando en 0.5 segundos...")
