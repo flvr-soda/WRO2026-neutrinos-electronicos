@@ -85,7 +85,7 @@ The robot employs a dual-processor architecture optimized for high-level percept
                                | Telemetry: T:Z:<z>;A:<a>;U:<u>\n
 +------------------------------v------------------------------+
 |                       ARDUINO UNO                           |
-|  - Non-blocking Command Parser & Watchdog Safety (500ms)    |
+|  - Non-blocking Command Parser                              |
 |  - BTS7960 H-Bridge DC Motor PWM Drive                      |
 |  - MG996R Steering Servo Control (40° - 140°)               |
 |  - 100-line Quadrature Optical Encoder Interrupts           |
@@ -158,13 +158,7 @@ WRO2026-neutrinos-electronicos/
 ├── code/                             # Source code directory
 │   ├── arduino/                      # Arduino C++ Firmware
 │   │   └── firmware_terreneitor/
-│   │       ├── firmware_terreneitor.ino   # Setup and main loop
-│   │       ├── config.h                   # Pin definitions and global variables
-│   │       ├── motores.cpp               # BTS7960 drive and MG996R servo control
-│   │       ├── sensores.cpp              # Encoder, HC-SR04, and MPU6050 handlers
-│   │       ├── comunicacion.cpp          # Serial protocol parser (V:<vel>;A:<ang>)
-│   │       ├── pid.cpp                   # PID speed controller implementation
-│   │       └── pid.h                     # PID structures and declarations
+│   │       └── firmware_terreneitor.ino   # Monolithic firmware (motors, sensors, comms, config)
 │   │
 │   ├── raspberry_pi/                  # Primary Navigation System
 │   │   ├── main.py                      # Main entrypoint and FSM orchestrator
