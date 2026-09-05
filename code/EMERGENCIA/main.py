@@ -213,23 +213,31 @@ class EmergencyLidarRunner:
     def esperar_inicio(self):
         """
         Modo STANDBY tras encendido.
-        Espera a que se presione el botón de inicio físico (Regla WRO 9.11).
+        Espera a que se active el switch de inicio físico (Regla WRO 9.11).
+        Detecta el flanco de subida (switch de off a on).
         """
         logger.info("==================================================")
         logger.info("[STANDBY] Robot encendido y listo en zona de salida.")
-        
+
         if self.boton is not None:
-            logger.info(f"Esperando pulsación del botón de inicio (GPIO {PIN_BOTON_INICIO})...")
+            logger.info(f"Esperando activación del switch de inicio (GPIO {PIN_BOTON_INICIO})...")
             try:
-                self.boton.wait_for_press()
-                logger.info("¡Botón de inicio presionado! Arrancando en 0.5 segundos...")
-                time.sleep(0.5)
-                return True
+                # Esperar a que el switch se active (flanco de subida)
+                switch_state = False
+                while True:
+                    current_state = self.boton.is_pressed
+                    # Detectar flanco de subida: estaba apagado y ahora está encendido
+                    if current_state and not switch_state:
+                        logger.info("¡Switch de inicio activado! Arrancando en 0.5 segundos...")
+                        time.sleep(0.5)
+                        return True
+                    switch_state = current_state
+                    time.sleep(0.05)
             except KeyboardInterrupt:
                 logger.info("Cancelado en standby por teclado.")
                 return False
         else:
-            logger.info("Botón GPIO no disponible. Presione ENTER en consola para iniciar carrera...")
+            logger.info("Switch GPIO no disponible. Presione ENTER en consola para iniciar carrera...")
             try:
                 input()
                 logger.info("¡Comando de inicio recibido! Arrancando en 0.5 segundos...")
