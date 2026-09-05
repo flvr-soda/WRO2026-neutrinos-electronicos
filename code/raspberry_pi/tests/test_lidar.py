@@ -10,17 +10,10 @@ import struct
 import sys
 import os
 
-# Try to import RPi.GPIO, provide fallback for non-RPi systems
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except (ImportError, RuntimeError):
-    GPIO_AVAILABLE = False
-    print("WARNING: RPi.GPIO not available. Running in simulation mode (non-Raspberry Pi system).")
-
-# Agregar path para importar ConfigLoader
+# Agregar path para importar módulos
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.config_loader import ConfigLoader
+from src.hardware import get_servo
 
 # Cargar configuración
 config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'))
@@ -36,7 +29,7 @@ SERVO_PIN = lidar_config.get('pin_servo', 18)
 class LidarTester:
     """Clase reutilizable para pruebas de LiDAR TF-Luna"""
     
-    def __init__(self, config_loader=None):
+    def __init__(self, config_loader=None, use_mock=False):
         if config_loader:
             serial_ports_config = config_loader.get_serial_ports()
             lidar_config = config_loader.get_lidar()
@@ -50,24 +43,20 @@ class LidarTester:
         self.servo = None
         self.current_angle = 90
         self.config_loader = config_loader
+        self.use_mock = use_mock
         
     def setup(self):
         """Inicializa LiDAR y servo"""
         try:
-            if not GPIO_AVAILABLE:
-                print("WARNING: GPIO not available. Servo control disabled.")
-                self.servo = None
-            else:
-                # Setup servo
-                GPIO.setmode(GPIO.BCM)
-                GPIO.setup(self.servo_pin, GPIO.OUT)
-                self.servo = GPIO.PWM(self.servo_pin, 50)
-                self.servo.start(0)
-                
-                # Centrar servo al frente (90°)
+            # Setup servo usando hardware abstraction layer
+            self.servo = get_servo(use_mock=self.use_mock)
+            if self.servo.setup(self.servo_pin, frequency=50):
                 print("Centrando servo a 90 grados...")
                 self.set_servo_angle(90)
-                time.sleep(0.5)  # Dar más tiempo para que el servo se mueva
+                time.sleep(0.5)
+            else:
+                print("WARNING: Servo no disponible. Control de servo deshabilitado.")
+                self.servo = None
             
             # Setup LiDAR serial
             print(f"Conectando a LiDAR en {self.port}...")
@@ -81,14 +70,10 @@ class LidarTester:
             
     def set_servo_angle(self, angle):
         """Mueve servo a ángulo específico (0-180)"""
-        if self.servo and GPIO_AVAILABLE:
-            # Limitar a rango válido 0-180
-            angle = max(0, min(180, angle))
-            duty = angle / 18.0 + 2.5
-            self.servo.ChangeDutyCycle(duty)
+        if self.servo:
+            self.servo.set_angle(angle)
             self.current_angle = angle
-            time.sleep(0.1)
-        elif not GPIO_AVAILABLE:
+        else:
             # Simulation mode - just update the angle
             self.current_angle = max(0, min(180, angle))
             
@@ -221,8 +206,8 @@ class LidarTester:
         
         # Centrar servo
         self.set_servo_angle(90)
-        if self.servo and GPIO_AVAILABLE:
-            self.servo.ChangeDutyCycle(0)
+        if self.servo:
+            self.servo.stop()
         
         return resultados
         
@@ -234,11 +219,8 @@ class LidarTester:
         
         if self.ser:
             self.ser.close()
-        if self.servo and GPIO_AVAILABLE:
-            self.servo.ChangeDutyCycle(0)
-            self.servo.stop()
-        if GPIO_AVAILABLE:
-            GPIO.cleanup()
+        if self.servo:
+            self.servo.cleanup()
 
 def main():
     """Función principal de prueba individual de LiDAR"""

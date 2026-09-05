@@ -10,33 +10,10 @@ import time
 import sys
 import os
 
-# Mock pykms module for headless operation
-class MockPixelFormat:
-    RGB888 = 0
-    RGB565 = 1
-    XRGB8888 = 2
-    XBGR8888 = 3
-    ARGB8888 = 4
-    ABGR8888 = 5
-    BGR888 = 6
-    BGR565 = 7
-    YUYV = 8
-    UYVY = 9
-    NV12 = 10
-    YUV420 = 11
-
-class MockPyKMS:
-    PixelFormat = MockPixelFormat
-    PixelFormats = MockPixelFormat
-
-sys.modules['kms'] = MockPyKMS()
-sys.modules['pykms'] = MockPyKMS()
-
-from picamera2 import Picamera2
-
-# Agregar path para importar ConfigLoader
+# Agregar path para importar módulos
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.config_loader import ConfigLoader
+from src.hardware import get_camera
 
 # Cargar configuración
 config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'))
@@ -60,36 +37,38 @@ MIN_AREA = vision_config.get('min_area', 500)
 class CameraTester:
     """Clase reutilizable para pruebas de cámara"""
     
-    def __init__(self, config_loader=None):
-        self.picam2 = None
+    def __init__(self, config_loader=None, use_mock=False):
+        self.camera = None
         self.config_loader = config_loader
+        self.use_mock = use_mock
         
     def setup(self):
-        """Inicializa cámara CSI usando configuración de config.yaml"""
-        self.picam2 = Picamera2()
+        """Inicializa cámara usando configuración de config.yaml"""
+        self.camera = get_camera(use_mock=self.use_mock)
         vision_config = self.config_loader.get_vision() if self.config_loader else {}
-        config = self.picam2.create_video_configuration(
-            main={
-                "format": vision_config.get('format', 'RGB888'),
-                "size": (vision_config.get('width', 640), vision_config.get('height', 480))
-            }
-        )
-        self.picam2.configure(config)
-        self.picam2.start()
-        time.sleep(1)  # Esperar estabilización
+        
+        width = vision_config.get('width', 640)
+        height = vision_config.get('height', 480)
+        format_str = vision_config.get('format', 'RGB888')
+        
+        if self.camera.setup(width=width, height=height, format=format_str):
+            self.camera.start()
+            time.sleep(1)  # Esperar estabilización
+            return True
+        return False
         
     def capture_frame(self):
         """Captura un frame y lo convierte a BGR"""
-        if self.picam2:
-            frame = self.picam2.capture_array()
-            return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        if self.camera:
+            frame = self.camera.capture_frame()
+            if frame is not None:
+                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return None
         
     def stop(self):
         """Detiene y libera la cámara"""
-        if self.picam2:
-            self.picam2.stop()
-            self.picam2.close()
+        if self.camera:
+            self.camera.stop()
 
 def detectar_colores(frame):
     """Detecta rojo, verde y magenta en el frame"""
@@ -128,17 +107,21 @@ def detectar_colores(frame):
     
     return frame, detecciones
 
-def main(headless=True):
+def main(headless=True, use_mock=False):
     """Función principal de prueba individual de cámara
     
     Args:
         headless: Si True, ejecuta sin ventana gráfica (modo consola)
+        use_mock: Si True, usa cámara simulada (para desarrollo en Windows)
     """
     print("Iniciando prueba de cámara CSI...")
-    print(f"Modo: {'HEADLESS (sin ventana)' if headless else 'GRÁFICO (con ventana)'}")
+    print(f"Modo: {'MOCK (simulado)' if use_mock else 'REAL (hardware)'}")
+    print(f"Display: {'HEADLESS (sin ventana)' if headless else 'GRÁFICO (con ventana)'}")
     
-    camera = CameraTester(config_loader)
-    camera.setup()
+    camera = CameraTester(config_loader, use_mock=use_mock)
+    if not camera.setup():
+        print("Error: No se pudo inicializar la cámara")
+        return
     
     print("Cámara iniciada. Presiona Ctrl+C para salir.")
     print("-" * 60)
@@ -185,8 +168,17 @@ def main(headless=True):
 
 if __name__ == "__main__":
     import sys
-    # Permitir cambiar modo con argumento de línea de comandos
+    # Permitir cambiar modo con argumentos de línea de comandos
     headless_mode = True  # Default: headless
-    if len(sys.argv) > 1 and sys.argv[1] == '--gui':
-        headless_mode = False
-    main(headless=headless_mode)
+    use_mock_mode = False  # Default: real hardware
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--gui':
+            headless_mode = False
+        elif sys.argv[1] == '--mock':
+            use_mock_mode = True
+        elif sys.argv[1] == '--mock-gui':
+            use_mock_mode = True
+            headless_mode = False
+    
+    main(headless=headless_mode, use_mock=use_mock_mode)

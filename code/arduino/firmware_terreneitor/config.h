@@ -11,7 +11,7 @@ const int PIN_SERVO = 6;
 const int PIN_RPWM = 9; // PWM Derecha (Avanzar)
 const int PIN_LPWM = 10; // PWM Izquierda (Retroceder)
 const int PIN_R_EN = 7; // Enable Derecha
-const int PIN_L_EN = 8; // Enable Izquierda
+const int PIN_L_EN = 8; // Enable Izquierda 
 
 // Constantes físicas del robot
 // HC-SR04 Trasero

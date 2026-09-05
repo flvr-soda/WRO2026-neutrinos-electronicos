@@ -10,7 +10,6 @@
 - [Software Architecture](#software-architecture)
   - [Programming Languages](#programming-languages)
   - [Python Libraries](#python-libraries)
-  - [Diagrams](#diagrams)
   - [Flowcharts](#flowcharts)
   - [Directory Structure](#directory-structure)
 - [Algorithmic Logic](#algorithmic-logic)
@@ -18,763 +17,333 @@
   - [Computer Vision Processing](#computer-vision-processing)
   - [LiDAR-Based Parking](#lidar-based-parking)
   - [Serial Communication Protocol](#serial-communication-protocol)
-- [Module Descriptions](#module-descriptions)
 - [Emergency Navigation System](#emergency-navigation-system)
+- [Module Descriptions](#module-descriptions)
 - [Installation and Setup](#installation-and-setup)
 - [Configuration](#configuration)
 - [Usage Instructions](#usage-instructions)
 - [Component List](#component-list)
 - [Robot Images](#robot-images)
 - [Practice Videos](#practice-videos)
-- [WRO 2026 Compliance](#wro-2026-compliance)
 - [Development Milestones](#development-milestones)
+
+---
 
 ## Project Overview
 
-Terreneitor is an autonomous robot designed for the World Robot Olympiad (WRO) 2026 competition. The robot implements a hybrid architecture combining a Raspberry Pi 4 as the high-level processing unit and an Arduino UNO as the real-time hardware controller. This design ensures both sophisticated decision-making capabilities and precise motor control with minimal latency.
+**Terreneitor** is an autonomous vehicle designed for the World Robot Olympiad (WRO) 2026 Future Engineers competition. The robot implements a hybrid computing architecture combining a **Raspberry Pi 4** as the high-level perception and decision unit and an **Arduino UNO** as the real-time hardware controller. This design guarantees sophisticated decision-making alongside deterministic, low-latency motor control.
 
 **Key Design Principles:**
-- **Hybrid Centralized Architecture:** Single Raspberry Pi 4 as master node with Arduino UNO as dedicated hardware controller to avoid critical latency issues
-- **Isolated Control Loop:** PID-based motor control with encoder feedback running entirely on Arduino for immediate, smooth velocity control without network delays
-- **Configuration-Driven Logic:** All competition logic decoupled from source code via centralized config.yaml for rapid pit modifications without recompilation
-- **Modular Software Design:** Event-based Finite State Machine (FSM) on Raspberry Pi enabling independent development, testing, and debugging of each race phase
+- **Hybrid Centralized Architecture:** Single Raspberry Pi 4 as master node with Arduino UNO as dedicated hardware controller to eliminate latency issues.
+- **Isolated Control Loop:** PID-based motor control with encoder feedback running directly on the Arduino for immediate, smooth velocity regulation.
+- **Configuration-Driven Logic:** Main competition parameters decoupled from source code via centralized `config.yaml` for rapid pit adjustments without recompilation.
+- **Modular Software Design:** Event-based Finite State Machine (FSM) on Raspberry Pi enabling independent development and validation of each race phase.
+- **Dual-Track Reliability:** Complete primary vision-based navigation system alongside a lightweight, reactive **Emergency LiDAR fallback system** (`code/EMERGENCIA`).
+
+---
+
+## Team Introduction
+
+<p align="center">
+  <img src="photos/team/team-intro.jpeg" alt="Team Photo" width="500">
+</p>
+
+| Name | Role |
+|------|------|
+| **Ismael Armada** | Software Architecture & Control |
+| **Sebastián Vera** | Mechanics & Chassis Design |
+| **Andrés Lugo** | Electronics & Power Systems |
+| **Milagro Rojas** | Coach |
+
+- **Ismael Armada:** I am 20 years old, in my 4th semester of my Computer Science major. I learned about WRO thanks to a mutual friend I share with our team's coach. With this competition, I simply aim to challenge myself as a programmer by diving headfirst, for the very first time, into the development of a robotics project.
+- **Sebastián Vera:** I am 18 years old and a Mechanical Engineering student, currently in my 3rd semester. I discovered WRO through my high school, as we were able to represent it during our senior year. I loved that experience, and it introduced me to this amazing world of robotics—how fun and challenging it really is! I hope to have the opportunity to represent both my team and my country in such an incredible competition.
+- **Andrés Lugo:** I am 19 years old and an Electrical Engineering student, currently taking 2nd-semester courses in Mechanical Engineering. I got to know WRO by competing alongside Sebastián for the first time in our senior year of high school. I didn't have much knowledge back then, but it was my gateway into this world.
+
+---
+
+## The Robot: Terreneitor
+
+Every project needs an identity, and ours was born out of a shared childhood memory. During one of our first team meetings, a conversation about remote-controlled cars revealed that every single member of our team had owned a "Terreneitor" toy car growing up. That shared memory inspired the name of our autonomous vehicle.
+
+---
+
+## System Architecture
+
+The robot employs a dual-processor architecture optimized for high-level perception and real-time execution:
+
+```
++-------------------------------------------------------------+
+|                      RASPBERRY PI 4                         |
+|  - Computer Vision (OpenCV / CSI Camera)                    |
+|  - TF-Luna LiDAR Reader & SG90 Servo Control                |
+|  - Finite State Machine (INICIO, NAVEGACION, ESTACIONAR)    |
+|  - PID Steering & Speed Calculation                         |
+|  - Rule Enforcement & Lap Counter                           |
++------------------------------+------------------------------+
+                               | USB Serial (115200 baud)
+                               | Command: V:<vel>;A:<ang>\n
+                               | Telemetry: T:Z:<z>;A:<a>;U:<u>\n
++------------------------------v------------------------------+
+|                       ARDUINO UNO                           |
+|  - Non-blocking Command Parser & Watchdog Safety (500ms)    |
+|  - BTS7960 H-Bridge DC Motor PWM Drive                      |
+|  - MG996R Steering Servo Control (40° - 140°)               |
+|  - 100-line Quadrature Optical Encoder Interrupts           |
+|  - HC-SR04 Rear Ultrasonic Distance Reader                  |
+|  - MPU6050 6-DOF IMU Yaw Angle Integration                  |
++-------------------------------------------------------------+
+```
+
+---
+
+## Hardware Specifications
+
+### Main Processing Units
+- **SBC:** Raspberry Pi 4 Model B (4GB RAM)
+- **MCU:** Arduino UNO R3
+
+### Power Architecture
+- Independent high-capacity battery pack for traction motors
+- Dedicated power supply for Raspberry Pi 4 and Arduino
+- Voltage regulator: **XL4015** step-down buck converter (high-current stabilization)
+- 5V active cooling fan for Raspberry Pi 4
+- Two distinct switches: Main master power and physical start button (GPIO 23 / Pin 16)
+
+### Sensors
+- **Camera:** OV5647 5MP with 120° wide-angle field of view (CSI ribbon interface)
+- **Front LiDAR:** TF-Luna ToF distance sensor mounted on SG90 panning servo
+- **Rear Distance:** HC-SR04 ultrasonic sensor (connected to Arduino)
+- **IMU:** MPU6050 6-DOF accelerometer and gyroscope (I2C)
+- **Speed Sensor:** 100-line optical quadrature encoder on main transmission
+
+### Actuators
+- **Motor Driver:** BTS7960 43A High-Power H-Bridge
+- **Traction Motor:** High-torque DC motor
+- **Steering Servo:** MG996R metal-gear 180° servo motor
+- **LiDAR Panning Servo:** SG90 micro servo
+
+---
+
+## Software Architecture
+
+### Programming Languages
+- **Python 3:** Raspberry Pi high-level logic, state machine, vision, and emergency modules.
+- **C++:** Arduino firmware for real-time motor drive and sensor polling.
+
+### Python Libraries
+- `opencv-python`: Real-time color detection, ROI extraction, and morphological filtering.
+- `pyserial`: Direct non-blocking serial communication between Pi and Arduino.
+- `gpiozero`: Hardware interface for physical start button (WRO Rule 9.11) and servos.
+- `pyyaml`: Configuration file validation and loading (`config.yaml`).
+- `numpy`: Numerical processing for vision masks and arrays.
+
+### Flowcharts
+
+#### 1. Raspberry Pi Perception & Decision-Making Flow
+
+
+#### 2. Arduino UNO Real-Time Control Flow
+
+
+#### 3. Integrated Dual-Node System & Inter-Board Communication
+
+### Directory Structure
+
+```
+WRO2026-neutrinos-electronicos/
+├── README.md                         # Main project documentation
+├── LICENSE                           # Project license
+├── .gitignore                        # Git exclusion rules
+│
+├── code/                             # Source code directory
+│   ├── arduino/                      # Arduino C++ Firmware
+│   │   └── firmware_terreneitor/
+│   │       ├── firmware_terreneitor.ino   # Setup and main loop
+│   │       ├── config.h                   # Pin definitions and global variables
+│   │       ├── motores.cpp               # BTS7960 drive and MG996R servo control
+│   │       ├── sensores.cpp              # Encoder, HC-SR04, and MPU6050 handlers
+│   │       ├── comunicacion.cpp          # Serial protocol parser (V:<vel>;A:<ang>)
+│   │       ├── pid.cpp                   # PID speed controller implementation
+│   │       └── pid.h                     # PID structures and declarations
+│   │
+│   ├── raspberry_pi/                  # Primary Navigation System
+│   │   ├── main.py                      # Main entrypoint and FSM orchestrator
+│   │   ├── config.yaml                  # Calibration and competition parameters
+│   │   ├── requirements.txt             # Python package dependencies
+│   │   ├── start_robot.sh               # Execution wrapper script
+│   │   ├── wro-robot.service            # Systemd service unit for competition auto-start
+│   │   ├── INSTALL_SERVICE.md           # Systemd installation guide
+│   │   ├── src/                         # Core modules
+│   │   │   ├── config_loader.py         # YAML validator and loader
+│   │   │   ├── comms_arduino.py         # Asynchronous thread-safe Arduino serial driver
+│   │   │   ├── vision.py                # Asynchronous HSV color detection
+│   │   │   ├── lidar.py                 # TF-Luna serial driver and servo controller
+│   │   │   ├── pid.py                   # Python PID controller
+│   │   │   └── hardware/                # Hardware abstraction interfaces (GPIO, Servo, Camera)
+│   │   ├── estados/                     # Finite State Machine states
+│   │   │   ├── fsm.py                   # State machine engine
+│   │   │   ├── estado_inicio.py         # WRO Standby and Start Button logic
+│   │   │   ├── estado_navegacion.py     # Active track navigation & lap counter
+│   │   │   ├── estado_estacionar.py     # Automatic 4-phase parking maneuver
+│   │   │   └── estado_fin.py            # Race completion and safety shutdown
+│   │   └── tests/                       # Standalone diagnostic tests
+│   │       ├── test_camara.py           # Camera headless & GUI diagnostic
+│   │       ├── test_lidar.py            # LiDAR & servo angle test
+│   │       ├── test_ultrasonico.py      # Ultrasonic reading test
+│   │       └── test_completo.py         # Full sensor integration test
+│   │
+│   └── EMERGENCIA/                    # Standalone Emergency Navigation (LiDAR Direct)
+│       ├── main.py                      # Open Challenge: Fixed LiDAR reactive racer
+│       ├── main_obstaculos.py           # Obstacle Challenge: Sweep LiDAR evasion racer
+│       ├── start.sh                     # Emergency interactive runner
+│       ├── start_emergency.sh           # Service wrapper
+│       ├── wro-emergency.service        # Emergency systemd service file
+│       └── README.md                    # Emergency system guide
+│
+├── elec/                             # Electrical schematics and diagrams
+├── mech/                             # 3D models and CAD files
+├── photos/                           # Team and vehicle photographic documentation
+└── videos/                           # Practice run videos
+```
+
+---
+
+## Algorithmic Logic
+
+### Finite State Machine (FSM)
+
+The primary software on the Raspberry Pi uses an event-driven Finite State Machine (`code/raspberry_pi/estados/fsm.py`):
+
+1. **`EstadoInicio` (Standby & Ready):**
+   - Initializes sensor communication and hardware drivers.
+   - Waits in standby mode until the physical start button (`GPIO 23`) is pressed (WRO Rule 9.11).
+   - Transitions to `EstadoNavegacion`.
+
+2. **`EstadoNavegacion` (Race Execution):**
+   - Continuously receives non-blocking HSV vision detections (obstacle centroid, color).
+   - Computes proportional steering angles to avoid pillars (Red $\rightarrow$ evade left, Green $\rightarrow$ evade right).
+   - Tracks lap completion using accumulated encoder telemetry.
+   - Enforces the 3-minute WRO round time limit.
+   - Transitions to `EstadoEstacionar` (Obstacle Challenge) or `EstadoFin` (Open Challenge).
+
+3. **`EstadoEstacionar` (Parallel Parking):**
+   - Executes an automated 4-phase parking sequence using LiDAR gap detection:
+     - **Phase 1 (Scan):** Sweeps LiDAR servo to identify the parking bay gap.
+     - **Phase 2 (Approach):** Aligns the vehicle alongside the detected gap.
+     - **Phase 3 (Reverse Entry):** Reverses into the space with calculated steering angle.
+     - **Phase 4 (Straighten):** Centers vehicle between walls.
+   - Transitions to `EstadoFin`.
+
+4. **`EstadoFin` (Safe Shutdown):**
+   - Immediately stops traction motor (`V:0`), centers steering (`A:90`), and safely releases all hardware connections.
+
+---
+
+## Emergency Navigation System
+
+Located in [`code/EMERGENCIA/`](code/EMERGENCIA), this system is a single-file, zero-overhead reactive fallback designed to guarantee full completion of 3 laps under high-stress competition conditions without relying on camera lighting calibration, OpenCV, or YAML files.
+
+### Available Emergency Programs:
+
+1. **[`main.py`](code/EMERGENCIA/main.py) — Open Challenge (Fast Reactive Racer):**
+   - Uses direct serial UART reads from the **TF-Luna LiDAR in a fixed forward position ($90^\circ$)** at 40 Hz.
+   - Cruises in straight lines (`V:65, A:90`).
+   - Upon detecting the outer containment wall ($\le 75\text{ cm}$), initiates a sharp right turn (`V:45, A:50`), increments the corner counter with anti-bounce cooldown, and returns to straight cruise once the track clears ($\ge 110\text{ cm}$).
+   - Automatically halts after exactly 12 corners (3 laps).
+
+2. **[`main_obstaculos.py`](code/EMERGENCIA/main_obstaculos.py) — Obstacle Challenge (Sweep Evasion):**
+   - Retains the LiDAR servo on `GPIO 18`.
+   - When a frontal obstacle is detected ($\le 50\text{ cm}$), performs an ultra-fast 2-point sweep ($60^\circ$ left / $120^\circ$ right in $\sim 200\text{ ms}$).
+   - Immediately turns steering toward the side with greater free clearance.
+   - Detects outer track corners ($\le 75\text{ cm}$) and completes 3 laps reliably.
+
+Both scripts strictly follow the **WRO 9.11 Standby $\rightarrow$ Start Button** protocol.
+
+---
 
 ## Installation and Setup
 
 ### Raspberry Pi Setup
 
-1. **Clone the repository:**
+1. **Clone repository:**
    ```bash
    cd /home/pi
-   git clone <repository-url>
+   git clone https://github.com/flvr-soda/WRO2026-neutrinos-electronicos.git
    cd WRO2026-neutrinos-electronicos/code/raspberry_pi
    ```
 
-2. **Create virtual environment and install dependencies:**
+2. **Create Python virtual environment & install dependencies:**
    ```bash
    python3 -m venv env
    source env/bin/activate
    pip install -r requirements.txt
    ```
 
-3. **Configure hardware settings:**
-   - Edit `config.yaml` to set calibration parameters
-   - Adjust HSV color ranges for your lighting conditions
-   - Set motor speeds and servo angles
+3. **Install Arduino Firmware:**
+   - Open `code/arduino/firmware_terreneitor/firmware_terreneitor.ino` in Arduino IDE.
+   - Select Board `Arduino Uno` and target serial port.
+   - Compile and upload.
 
-4. **Install Arduino firmware:**
-   - Open `code/arduino/firmware_terreneitor/firmware_terreneitor.ino` in Arduino IDE
-   - Upload to Arduino UNO
-
-### Systemd Auto-Start Setup
-
-For competition use where SSH access is not available, install the systemd service:
-
-**Main System:**
-```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
-chmod +x start_robot.sh
-sudo cp wro-robot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable wro-robot.service
-sudo systemctl start wro-robot.service
-```
-
-**Emergency System:**
-```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-chmod +x start_emergency.sh
-sudo cp wro-emergency.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable wro-emergency.service
-sudo systemctl start wro-emergency.service
-```
-
-See `code/raspberry_pi/INSTALL_SERVICE.md` for detailed instructions.
-
-## Configuration
-
-### Main System Configuration (`code/raspberry_pi/config.yaml`)
-
-Key configuration sections:
-- `velocidades`: Motor speed settings
-- `angulos_servo`: Servo angle calibration
-- `hsv_rojo/hsv_verde/hsv_magenta`: Color detection ranges
-- `competicion`: Competition rules and parameters
-- `lidar`: LiDAR scanning parameters
-- `vehiculo`: Vehicle dimensions for maneuvering
-
-### Emergency System Configuration (`code/EMERGENCIA/config.yaml`)
-
-Simplified configuration for emergency navigation:
-- `navegacion`: Speed and timing parameters
-- `vision`: Black wall detection thresholds
-- No serial port configuration (auto-detected)
+---
 
 ## Usage Instructions
 
-### Manual Execution (Development)
+### Manual Execution
 
-**Main System:**
+**Primary System:**
 ```bash
 cd /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
 source env/bin/activate
 python3 main.py
 ```
 
-**Emergency System:**
+**Emergency System (Open Challenge):**
 ```bash
 cd /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-source ../env/bin/activate
 python3 main.py
 ```
 
-### Using Startup Scripts
-
-**Main System:**
-```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
-./start_robot.sh
-```
-
-**Emergency System:**
+**Emergency System (Obstacle Challenge):**
 ```bash
 cd /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-./start.sh
+python3 main_obstaculos.py
 ```
 
-### Hardware Testing
+### Systemd Auto-Start Service (Headless Competition Mode)
 
-Test scripts are available in `code/raspberry_pi/tests/`:
-- `test_camara.py`: Camera testing with headless mode
-- `test_lidar.py`: LiDAR and servo testing
-- `test_ultrasonico.py`: Ultrasonic sensor testing
-- `test_completo.py`: Integrated sensor testing
+To enable automatic execution upon powering on the robot:
 
-### Systemd Service Management
-
-**Check service status:**
 ```bash
-sudo systemctl status wro-robot.service
-# or
-sudo systemctl status wro-emergency.service
-```
+# Enable primary system:
+sudo cp code/raspberry_pi/wro-robot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable wro-robot.service
+sudo systemctl start wro-robot.service
 
-**View logs:**
-```bash
-sudo journalctl -u wro-robot.service -f
-# or
-sudo journalctl -u wro-emergency.service -f
-```
-
-**Stop service:**
-```bash
-sudo systemctl stop wro-robot.service
-# or
-sudo systemctl stop wro-emergency.service
-```
-
-**Switch between services:**
-```bash
-sudo systemctl stop wro-robot.service
-sudo systemctl disable wro-robot.service
+# Or enable emergency system:
+sudo cp code/EMERGENCIA/wro-emergency.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable wro-emergency.service
 sudo systemctl start wro-emergency.service
 ```
 
-## Project Overview
-
-Terreneitor is an autonomous robot designed for the World Robot Olympiad (WRO) 2026 competition. The robot implements a hybrid architecture combining a Raspberry Pi 4 as the high-level processing unit and an Arduino UNO as the real-time hardware controller. This design ensures both sophisticated decision-making capabilities and precise motor control with minimal latency.
-
-**Key Design Principles:**
-- **Hybrid Centralized Architecture:** Single Raspberry Pi 4 as master node with Arduino UNO as dedicated hardware controller to avoid critical latency issues
-- **Isolated Control Loop:** PID-based motor control with encoder feedback running entirely on Arduino for immediate, smooth velocity control without network delays
-- **Configuration-Driven Logic:** All competition logic decoupled from source code via centralized config.yaml for rapid pit modifications without recompilation
-- **Modular Software Design:** Event-based Finite State Machine (FSM) on Raspberry Pi enabling independent development, testing, and debugging of each race phase
-
-## Team Introduction
-
-<img src="photos/team/team-intro.jpeg" alt="Team Photo" width="500" align="center">
-
-| Name | Role |
-|------|------|
-| Ismael Armada | Software |
-| Sebastián Vera | Mechanics |
-| Andrés Lugo | Electronics |
-| Milagro Rojas | Coach |
-
-**Ismael Armada:** I am 20 years old, in my 4th semester of my Computer Science major. I learned about WRO thanks to a mutual friend I share with our team's coach. With this competition, I simply aim to challenge myself as a programmer by diving headfirst, for the very first time, into the development of a robotics project.
-
-**Sebastián Vera:** I am 18 years old and a Mechanical Engineering student, currently in my 3rd semester. I discovered WRO through my high school, as we were able to represent it during our senior year. I loved that experience, and it introduced me to this amazing world of robotics—how fun and challenging it really is! I hope to have the opportunity to represent both my team and my country in such an incredible competition.
-
-**Andrés Lugo:** I am 19 years old and an Electrical Engineering student, currently taking 2nd-semester courses in Mechanical Engineering. I got to know WRO by competing alongside Sebastián for the first time in our senior year of high school. I didn't have much knowledge back then, but it was my gateway into this world.
-
-## The Robot: Terreneitor
-
-Every project needs an identity, and ours was born out of a shared memory. During one of our first team meetings, a conversation about remote-controlled cars revealed that every single member of our team had owned a "Terreneitor" toy car growing up. That shared memory made us want to name our robot 'Terreneitor'.
-
-## System Architecture
-
-The system employs a dual-processor architecture optimized for both high-level decision making and real-time hardware control:
-
-**Raspberry Pi 4 (High-Level Processing):**
-- Processes camera input using OpenCV for color detection
-- Manages LiDAR sensor data for parking maneuvers
-- Implements Finite State Machine for race phase management
-- Executes navigation strategies and obstacle avoidance algorithms
-- Handles competition rule compliance (time limits, lap counting, signal violation detection)
-
-**Arduino UNO (Real-Time Control):**
-- Receives velocity and steering commands via serial communication
-- Implements PID control loop for motor speed regulation
-- Reads encoder data for velocity feedback and distance measurement
-- Controls motor driver (BTS7960 H-bridge) and steering servo (MG996R)
-- Sends telemetry data back to Raspberry Pi
-
-**Communication Protocol:**
-- Serial USB connection at 115200 baud
-- Auto-detects first available port (/dev/ttyUSB* or /dev/ttyACM*)
-- Command format: `V:[velocity];A:[angle]\n`
-- Telemetry format: `T:Z:[gyro_z];A:[angle];U:[ultrasonic_dist]\n`
-- Asynchronous command queue with dedicated worker thread for non-blocking operation
-
-## Hardware Specifications
-
-### Main Components
-- **SBC:** Raspberry Pi 4 Model B - 4GB RAM
-- **MCU:** Arduino UNO
-
-### Power Architecture
-- Motor battery pack
-- Separate batteries for Arduino and Raspberry Pi
-- Voltage stabilizer: XL4015 model
-- Battery charger
-- Battery mounting structure
-- Two switches: main power and start button
-- 5V cooling fan for Raspberry Pi 4
-
-### Sensors
-- **Camera:** OV5647 with 120° field of view
-- **Distance Sensors:** HC-SR04 ultrasonic sensors
-- **Orientation Sensor:** MPU6050 6-DOF IMU
-- **LiDAR:** TF-Luna mounted on SG90 servo
-- **Speed Sensor:** 100-line quadrature encoder (phase-shifted)
-  - Generates quadrature signals for velocity measurement and direction detection
-
-### Actuators
-- **Motor Driver:** BTS7960 H-bridge
-- **Traction Motor:** DC motor
-- **Steering Servo:** MG996R 180° servo motor
-
-### Other Components
-- Cables and USB cables
-- Soldering materials
-- 3D printed parts
-
-## Software Architecture
-
-### Programming Languages
-- **Python:** Raspberry Pi high-level processing
-- **C++:** Arduino real-time control
-
-### Python Libraries
-- **PyYAML:** Configuration file parsing
-- **OpenCV:** Computer vision processing
-- **PySerial:** Serial communication with Arduino
-- **GPIOZero:** GPIO pin control for buttons and servos
-- **NumPy:** Numerical operations for vision processing
-
-### Diagrams
-
-*System architecture and electrical diagrams will be added here.*
-
-- **Block Diagram:** Overall system architecture showing Raspberry Pi, Arduino, and peripheral connections
-- **Electrical Schematics:** Power distribution, sensor wiring, and motor driver circuits
-- **Mechanical Drawings:** Chassis design, component placement, and assembly views
-
-*Diagrams are stored in the `elec/` and `mech/` directories.*
-
-### Flowcharts
-
-*Process flowcharts will be added here.*
-
-- **Main Control Loop:** Raspberry Pi main execution flow
-- **FSM State Transitions:** Finite State Machine state diagram
-- **Parking Algorithm:** LiDAR-based parking maneuver flow
-- **Obstacle Avoidance:** Vision-based evasion logic
-- **Emergency Navigation:** Fallback system flow
-
-*Flowcharts will be added as development progresses.*
-
-### Directory Structure
-
-```
-WRO2026-neutrinos-electronicos/
-│
-├── README.md                         # Main project documentation
-├── .gitignore                        # Binary/temporary file exclusions
-│
-├── code/                             # Source code directory
-│   ├── arduino/                      # C++ source code (Arduino IDE)
-│   │   └── firmware_terreneitor/
-│   │       ├── firmware_terreneitor.ino   # Main loop (Setup and Loop)
-│   │       ├── config.h                   # Static pin assignments and interrupts
-│   │       ├── motores.cpp               # H-bridge control, MG996R servo, PID speed control
-│   │       ├── sensores.cpp              # Encoder, HC-SR04, MPU6050 routines
-│   │       ├── comunicacion.cpp          # Serial messaging protocol parsers
-│   │       ├── pid.cpp                   # PID controller with anti-windup
-│   │       └── pid.h                     # PID structure and function declarations
-│   │
-│   ├── raspberry_pi/                  # Python source code (Main Processing)
-│   │   ├── requirements.txt              # Required libraries (opencv-python, pyyaml, pyserial, gpiozero)
-│   │   ├── main.py                      # Startup script and system orchestration
-│   │   ├── config.yaml                  # Calibration parameters and competition variables
-│   │   ├── start_robot.sh               # Systemd service wrapper for auto-start
-│   │   ├── wro-robot.service            # Systemd service file for main system
-│   │   ├── INSTALL_SERVICE.md            # Systemd service installation instructions
-│   │   ├── src/                         # Control modules and libraries
-│   │   │   ├── __init__.py
-│   │   │   ├── config_loader.py         # YAML file validator and reader
-│   │   │   ├── comms_arduino.py         # Serial communication interface (auto-detects port)
-│   │   │   ├── vision.py                # HSV segmentation algorithms (120° Camera)
-│   │   │   └── lidar.py                 # SG90 servo control and TF-Luna readings
-│   │   │
-│   │   ├── estados/                     # Independent FSM state classes
-│   │   │   ├── __init__.py
-│   │   │   ├── fsm.py                   # Native transition controller
-│   │   │   ├── estado_inicio.py         # Initialization and condition checking routine
-│   │   │   ├── estado_navegacion.py     # Obstacle avoidance algorithm (Red/Green)
-│   │   │   ├── estado_estacionar.py     # Automatic parallel parking maneuver
-│   │   │   └── estado_fin.py            # Safe vehicle shutdown at round end
-│   │   │
-│   │   ├── estrategias/                 # Interchangeable strategies for surprise rules
-│   │   │   ├── __init__.py
-│   │   │   ├── estrategia_base.py       # Abstract base class for strategies
-│   │   │   └── estrategia_normal.py     # Normal navigation strategy
-│   │   │
-│   │   └── tests/                       # Test scripts for hardware validation
-│   │       ├── test_camara.py            # Camera testing with headless mode
-│   │       ├── test_lidar.py            # LiDAR and servo testing
-│   │       ├── test_ultrasonico.py      # Ultrasonic sensor testing
-│   │       └── test_completo.py         # Integrated sensor testing
-│   │
-│   └── EMERGENCIA/                     # Emergency navigation system (fallback)
-│       ├── main.py                      # Emergency navigation program
-│       ├── config.yaml                  # Emergency system configuration
-│       ├── start.sh                     # Startup script for emergency system
-│       ├── start_emergency.sh           # Systemd service wrapper
-│       ├── wro-emergency.service        # Systemd service file for emergency system
-│       └── README.md                    # Emergency system documentation
-│
-├── auxiliar/                          # Auxiliary files and documentation
-├── elec/                             # Electrical schematics and diagrams
-├── mech/                             # Mechanical designs and 3D models
-├── photos/                           # Project photos
-└── videos/                           # Project videos
-```
-
-## Algorithmic Logic
-
-### Finite State Machine (FSM)
-
-The robot's behavior is controlled by an event-based Finite State Machine implemented in Python on the Raspberry Pi. The FSM manages the complete race cycle through distinct states:
-
-**State: INICIO (Start)**
-- Waits for physical start button press via GPIO
-- Initializes all hardware interfaces (camera, LiDAR, Arduino communication)
-- Loads competition configuration from config.yaml
-- Falls back to keyboard input if GPIO unavailable (degraded mode)
-- Transitions to NAVEGACION upon button press
-
-**State: NAVEGACION (Navigation)**
-- Main navigation state for both Obstacle and Open challenges
-- Implements lap counting using encoder telemetry
-- Enforces 3-minute time limit
-- Detects finish section for Open Challenge
-- Detects signal violations for Obstacle Challenge
-- Returns to start section after 3 laps in Open Challenge
-- Uses asynchronous vision processing for obstacle detection
-- Transitions to ESTACIONAR (Obstacle) or FIN (Open) based on challenge type
-
-**State: ESTACIONAR (Parking)**
-- Executes automatic parallel parking maneuver using LiDAR
-- Multi-phase parking algorithm:
-  1. **Scan Phase:** Sweeps LiDAR servo to detect parking gap
-  2. **Approach Phase:** Moves forward and aligns with detected gap
-  3. **Reverse Phase:** Executes reverse maneuver into parking space
-  4. **Straighten Phase:** Adjusts final position within parking space
-- Uses TF-Luna distance sensor for gap detection
-- Transitions to FIN upon completion
-
-**State: FIN (Finish)**
-- Stops all motors immediately
-- Centers steering servo
-- Signals FSM exit
-- Ensures safe shutdown of all hardware
-
-**Anti-Windup Protection:**
-- Clamps integral term when output saturates
-- Prevents integral windup during prolonged error conditions
-- Ensures stable control during startup and direction changes
-
-**Encoder-Based Velocity Feedback:**
-- 100-line quadrature encoder provides 400 pulses per revolution
-- Interrupt-driven reading ensures accurate velocity measurement
-- Velocity calculated in cm/s based on wheel circumference
-- Distance accumulated for lap counting
-
-**Control Loop Frequency:**
-- PID computation at 50 Hz (every 20ms)
-- Telemetry transmission at 10 Hz (every 100ms)
-- Watchdog timeout stops motors if no commands received within 500ms
-
-### Computer Vision Processing
-
-The vision system uses OpenCV for real-time color detection and obstacle avoidance:
-
-**HSV Color Space Segmentation:**
-- Converts RGB camera frames to HSV color space
-- Defines color ranges for Red, Green, and Magenta (parking zone)
-- Red uses dual-range detection (0-10° and 170-180° in hue)
-- Green: 40-80° hue range
-- Magenta: 140-170° hue range
-
-**Noise Filtering:**
-- Morphological opening operation with 5x5 kernel
-- Removes small noise and fills small holes
-- Ensures robust detection under varying lighting conditions
-
-**Contour Analysis:**
-- Finds contours in masked color regions
-- Selects largest contour by area
-- Calculates centroid using image moments
-- Filters detections by minimum area threshold (configurable)
-
-**Asynchronous Processing:**
-- Vision processing runs in background thread
-- Main loop retrieves latest detection without blocking
-- Enables ~20 Hz control loop while vision processes at ~10 Hz
-- Prevents camera read delays from affecting motor control
-
-**Proportional Steering:**
-- Calculates steering angle based on obstacle centroid position
-- Obstacles closer to frame center require sharper turns
-- Formula: `angle = straight + factor * (evasion_angle - straight)`
-- Factor ranges from 0 (edge) to 1 (center) for smooth steering
-
-### LiDAR-Based Parking
-
-The parking system uses the TF-Luna LiDAR sensor mounted on a servo for gap detection and maneuver execution:
-
-**Servo Scanning:**
-- SG90 servo sweeps LiDAR from 45° to 135°
-- Step size configurable (default 15°)
-- Sleep time reduced to 80ms for performance optimization
-- Returns list of (angle, distance) tuples
-
-**Gap Detection Algorithm:**
-- Searches for 3 consecutive readings above threshold (80cm)
-- Indicates open space suitable for parking
-- Logs detected gap angle for alignment
-
-**Parking Maneuver Phases:**
-
-1. **Scan Phase:**
-   - Stops robot for stable scanning
-   - Sweeps LiDAR across angle range
-   - Identifies parking gap location
-   - Retries up to 5 times if no gap found
-
-2. **Approach Phase:**
-   - Moves forward slowly for 1.5 seconds
-   - Turns steering to align with gap
-   - Stops momentarily before reverse
-
-3. **Reverse Phase:**
-   - Turns wheels at angle for reverse entry
-   - Reverses for 1.2 seconds
-   - Straightens wheels and continues reverse
-   - Turns opposite direction to straighten
-   - Checks distance to wall with LiDAR
-   - Adjusts position if too close
-
-4. **Straighten Phase:**
-   - Moves forward slightly to center
-   - Stops completely
-   - Marks parking as complete
-
-**Error Handling:**
-- All LiDAR operations wrapped in try-except blocks
-- Returns -1.0 on read errors for graceful degradation
-- Logs errors for diagnostic purposes
-
-### Serial Communication Protocol
-
-The communication between Raspberry Pi and Arduino uses a custom serial protocol:
-
-**Command Format (Pi → Arduino):**
-```
-V:[velocity];A:[angle]\n
-```
-- Velocity: 0-100 (percentage of max speed)
-- Angle: 40-140 (servo angle, 90 = straight)
-- Example: `V:60;A:90\n` (60% speed, straight)
-
-**Telemetry Format (Arduino → Pi):**
-```
-T:Z:[gyro_z];A:[angle];U:[ultrasonic_dist]\n
-```
-- Z: Gyroscope Z-axis angle in degrees (accumulated rotation)
-- A: Current servo angle (40-140)
-- U: Rear ultrasonic distance in cm
-- Example: `T:Z:45;A:90;U:25\n`
-
-**Asynchronous Command Queue:**
-- Commands placed in queue (max 10 items)
-- Dedicated worker thread processes queue
-- Non-blocking send from main loop
-- Discards oldest command if queue full (acceptable for real-time control)
-- Timeout of 50ms on queue get to prevent blocking
-
-**Telemetry Validation:**
-- Range validation on all received values
-- Rejects values outside expected ranges
-- Prevents corrupted data from affecting control
-- Logs validation failures for debugging
-
-**Reconnection Logic:**
-- Automatic reconnection attempt on serial errors
-- Separate thread for reconnection to avoid blocking
-- 2-second backoff between attempts
-- Graceful degradation if reconnection fails
-
-## Module Descriptions
-
-### Arduino Firmware Modules
-
-**firmware_terreneitor.ino**
-- Main entry point for Arduino firmware
-- Initializes serial communication at 115200 baud
-- Sets up encoder interrupts
-- Initializes motor driver and servo
-- Main loop processes serial commands and runs PID control
-- Sends telemetry every 100ms
-- Implements watchdog timeout (500ms) for safety
-
-**config.h**
-- Defines pin assignments for all hardware
-- Declares global variables shared across modules
-- Defines physical constants (wheel circumference, etc.)
-- Specifies PID parameters (Kp, Ki, Kd)
-- Defines function prototypes for all modules
-
-**motores.cpp**
-- Controls BTS7960 H-bridge motor driver
-- Controls MG996R steering servo
-- Implements PID control loop
-- Applies velocity and angle commands
-- Constrains angles to safe range (40-140)
-- Currently supports forward motion only
-
-**sensores.cpp**
-- Handles encoder interrupt service routines
-- Counts encoder ticks for velocity calculation
-- Calculates speed in cm/s based on wheel circumference
-- Accumulates total distance traveled
-- Uses atomic operations for safe interrupt reading
-
-**comunicacion.cpp**
-- Initializes serial communication
-- Reads incoming commands line-by-line
-- Parses command format: `V:[vel];A:[ang]\n`
-- Updates velocity and angle setpoints
-- Validates command format
-- Discards invalid commands
-
-**pid.cpp**
-- Implements PID controller structure
-- Provides initialization function
-- Computes PID output from error
-- Implements anti-windup clamping
-- Provides reset function for integral/derivative
-
-**pid.h**
-- Declares PID structure with Kp, Ki, Kd, integral, derivative
-- Declares function prototypes
-- Defines constants for anti-windup
-
-### Raspberry Pi Software Modules
-
-**main.py**
-- Entry point for Raspberry Pi software
-- Loads configuration from config.yaml
-- Initializes hardware interfaces (Arduino, vision, LiDAR)
-- Loads navigation strategy (for surprise rules)
-- Sets up FSM with all states
-- Runs FSM main loop
-- Handles graceful shutdown and resource cleanup
-
-**config_loader.py**
-- Reads and parses YAML configuration file
-- Validates configuration ranges (speeds, angles)
-- Provides accessor methods for config sections
-- Returns default values if config missing
-- Validates competition parameters
-
-**comms_arduino.py**
-- Manages serial connection with Arduino
-- Implements asynchronous command queue
-- Dedicated worker thread for command sending
-- Non-blocking command sending from main loop
-- Reads and parses telemetry with validation
-- Implements automatic reconnection on errors
-- Provides safe shutdown method
-
-**vision.py**
-- Processes camera frames for color detection
-- Implements HSV color segmentation
-- Filters noise with morphological operations
-- Calculates contours and centroids
-- Implements asynchronous processing with background thread
-- Provides latest detection without blocking
-- Supports Red, Green, and Magenta detection
-
-**lidar.py**
-- Interfaces with TF-Luna LiDAR sensor
-- Controls SG90 servo for scanning
-- Parses 9-byte TF-Luna data frames
-- Validates signal strength for reliable readings
-- Implements environment scanning with servo sweep
-- Optimized scan time (80ms per step)
-- Provides distance reading in centimeters
-
-**fsm.py**
-- Base class for FSM states
-- FSM manager class for state transitions
-- Handles state registration
-- Runs FSM main loop
-- Manages state enter/execute/exit lifecycle
-- Supports graceful FSM exit
-
-**estado_inicio.py**
-- Waits for physical start button press
-- Uses gpiozero.Button for GPIO control
-- Falls back to keyboard input if GPIO unavailable
-- Initializes all hardware on entry
-- Releases button resources on exit
-
-**estado_navegacion.py**
-- Main navigation state for both challenges
-- Implements lap counting with encoder
-- Enforces 3-minute time limit
-- Detects finish section for Open Challenge
-- Detects signal violations for Obstacle Challenge
-- Returns to start section after 3 laps
-- Uses asynchronous vision processing
-- Implements proportional steering for obstacle avoidance
-- Handles both Obstacle and Open challenge logic
-
-**estado_estacionar.py**
-- Executes automatic parallel parking
-- Multi-phase parking algorithm
-- Uses LiDAR for gap detection
-- Implements scan, approach, reverse, and straighten phases
-- Comprehensive error handling for all hardware operations
-- Transitions to FIN upon completion
-
-**estado_fin.py**
-- Stops all motors immediately
-- Centers steering servo
-- Signals FSM exit
-- Ensures safe shutdown
-
-**estrategia_base.py**
-- Abstract base class for navigation strategies
-- Defines interface for strategy implementation
-- Enables strategy injection for surprise rules
-- Requires decidir_accion() and get_nombre() methods
-
-**estrategia_normal.py**
-- Concrete implementation of normal navigation strategy
-- Implements obstacle avoidance logic
-- Red: evade to left (angle 130)
-- Green: evade to right (angle 50)
-- Magenta: straight line (parking zone)
-- Proportional steering based on obstacle position
+---
 
 ## Component List
 
-### Electronic Components
-- **Raspberry Pi 4 Model B** - 4GB RAM
-- **Arduino UNO** - Microcontroller
-- **BTS7960 H-Bridge Motor Driver** - Motor control
-- **XL4015 Voltage Regulator** - Power stabilization
-- **MPU6050 6-DOF IMU** - Gyroscope and accelerometer
-- **HC-SR04 Ultrasonic Sensor** - Distance measurement
-- **TF-Luna LiDAR Sensor** - Distance measurement for parking
-- **OV5647 Camera Module** - Computer vision input
-- **100-line Quadrature Encoder** - Velocity feedback
-- **MG996R Servo Motor** - Steering control
-- **DC Motor** - Traction
-- **SG90 Servo** - LiDAR scanning
+| Category | Component | Model / Specs | Purpose |
+|:---|:---|:---|:---|
+| **Processing** | Single Board Computer | Raspberry Pi 4 Model B (4GB) | Vision, FSM, Navigation, Decision Making |
+| **Processing** | Microcontroller | Arduino UNO R3 | Real-time Motor Control, Encoder ISR, Telemetry |
+| **Vision** | Camera Module | OV5647 5MP (120° FOV) | Pillar Color & Position Detection |
+| **Distance** | LiDAR Sensor | Benewake TF-Luna (ToF UART) | Corner Detection, Wall Ranging & Parking |
+| **Distance** | Ultrasonic Sensor | HC-SR04 | Rear Obstacle Measurement |
+| **IMU** | Motion Sensor | MPU6050 6-DOF | Yaw Angle Tracking |
+| **Actuator** | Motor Driver | BTS7960 43A H-Bridge | DC Traction Motor Drive |
+| **Actuator** | Steering Servo | MG996R Metal Gear (180°) | Front Wheel Steering |
+| **Actuator** | LiDAR Servo | SG90 Micro Servo (180°) | LiDAR Panning |
+| **Regulation** | Buck Converter | XL4015 Step-Down Module | High-Current Clean Voltage Stabilization |
 
-### Mechanical Components
-- **Chassis** - 3D printed frame
-- **Wheels** - Custom design
-- **Battery Mount** - Power system housing
-- **Switches** - Main power and start button
-- **Cooling Fan** - 5V fan for Raspberry Pi
-- **Cables and Connectors** - Wiring harness
+## License
 
-### Power System
-- **Motor Battery Pack** - High-capacity batteries
-- **Separate Batteries** - For Arduino and Raspberry Pi
-- **Battery Charger** - Charging system
-
-*Detailed component specifications and part numbers will be added as the BOM is finalized.*
-
-## Robot Images
-
-*Robot images will be organized in the `photos/` directory with the following structure:*
-
-```
-photos/
-├── top/          # Top view of the robot
-├── front/        # Front view
-├── left/         # Left side view
-├── right/        # Right side view
-├── back/         # Rear view
-├── bottom/       # Bottom view (chassis)
-└── team/         # Team photos
-```
-
-*Images will be added as the robot assembly progresses.*
-
-## Practice Videos
-
-*Practice run videos will be stored in the `videos/` directory.*
-
-- **Test Runs:** Early development testing
-- **Navigation Tests:** Obstacle avoidance validation
-- **Parking Tests:** LiDAR parking maneuver validation
-- **Competition Runs:** Full competition simulations
-
-*Videos will be added as testing progresses.*
-
-## WRO 2026 Compliance
-
-The robot is designed to comply with WRO 2026 regulations for the Regular Category - Senior age group. Key compliance features:
-
-- **Autonomous Operation:** No human intervention during the run
-- **Time Limit:** 3-minute maximum run time enforced by software
-- **Lap Counting:** Encoder-based lap counting for Open Challenge
-- **Signal Detection:** Vision-based signal violation detection for Obstacle Challenge
-- **Parking Maneuver:** Automatic parallel parking using LiDAR for Obstacle Challenge
-- **Start Button:** Physical GPIO button for competition start (Rule 9.11)
-- **Return to Start:** Automatic return to start section after 3 laps (Open Challenge)
-
-## Development Milestones
-
-1. **Electrical and Chassis Phase (Andrés and Sebastián):** Assembly of battery structure with XL4015 regulator to ensure clean and independent power supply for Raspberry Pi and Arduino. Wiring of BTS7960 H-bridge and main motor mounting.
-2. **Traction Control Loop (Ismael):** Arduino programming of DC motor speed control in closed loop using encoder interrupts. The goal of this milestone is to achieve constant robot speed in cm/s regardless of battery charge state.
-3. **Vision and Link Prototyping (Ismael):** Development of vision.py script on Raspberry Pi using static images of color blocks (red/green) to define optimal HSV ranges. In parallel, establish basic serial communication to send simple text frames like V:50;A:90 (Velocity: 50%, Angle: 90°) to Arduino.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
