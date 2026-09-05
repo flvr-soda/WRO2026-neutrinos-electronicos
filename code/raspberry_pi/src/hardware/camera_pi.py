@@ -1,5 +1,5 @@
 """
-Raspberry Pi Camera Implementation using Picamera2
+Implementación de Cámara Raspberry Pi usando Picamera2
 """
 
 import numpy as np
@@ -16,7 +16,7 @@ except ImportError:
 
 
 class PiCamera(CameraInterface):
-    """Raspberry Pi camera implementation using Picamera2"""
+    """Implementación de cámara Raspberry Pi usando Picamera2"""
     
     def __init__(self):
         self.picam2 = None
@@ -25,7 +25,7 @@ class PiCamera(CameraInterface):
         self._using_fallback = False
         
     def setup(self, width: int = 640, height: int = 480, format: str = 'RGB888') -> bool:
-        """Initialize camera with given configuration"""
+        """Inicializa cámara con la configuración dada"""
         if not PICAMERA_AVAILABLE:
             logging.warning("picamera2 not available, using mock fallback")
             self._using_fallback = True
@@ -46,7 +46,7 @@ class PiCamera(CameraInterface):
             return self._setup_fallback(width, height, format)
     
     def _setup_fallback(self, width: int, height: int, format: str) -> bool:
-        """Setup mock fallback when real camera fails"""
+        """Configura fallback simulado cuando la cámara real falla"""
         self.width = width
         self.height = height
         self._connected = True
@@ -55,7 +55,7 @@ class PiCamera(CameraInterface):
         return True
     
     def capture_frame(self) -> Optional[np.ndarray]:
-        """Capture a single frame in RGB format"""
+        """Captura un solo frame en formato RGB"""
         if self._using_fallback:
             return self._capture_fallback_frame()
             
@@ -71,13 +71,13 @@ class PiCamera(CameraInterface):
             return self._capture_fallback_frame()
     
     def _capture_fallback_frame(self) -> Optional[np.ndarray]:
-        """Capture a simulated frame (gradient pattern)"""
+        """Captura un frame simulado (patrón de gradiente)"""
         self._frame_count += 1
         
-        # Create a gradient pattern that changes over time
+        # Crear un patrón de gradiente que cambia con el tiempo
         frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         
-        # Create a color gradient that shifts over time
+        # Crear un gradiente de color que cambia con el tiempo
         offset = (self._frame_count * 2) % 256
         for y in range(self.height):
             for x in range(self.width):
@@ -88,7 +88,7 @@ class PiCamera(CameraInterface):
         return frame
     
     def start(self) -> None:
-        """Start camera streaming"""
+        """Inicia streaming de cámara"""
         if self._using_fallback:
             self._connected = True
             return
@@ -103,7 +103,7 @@ class PiCamera(CameraInterface):
                 self._connected = True
     
     def stop(self) -> None:
-        """Stop camera and release resources"""
+        """Detiene cámara y libera recursos"""
         if self.picam2:
             try:
                 if self._connected and not self._using_fallback:
@@ -117,5 +117,5 @@ class PiCamera(CameraInterface):
         self._using_fallback = False
     
     def is_connected(self) -> bool:
-        """Check if camera is connected and ready"""
+        """Verifica si la cámara está conectada y lista"""
         return self._connected

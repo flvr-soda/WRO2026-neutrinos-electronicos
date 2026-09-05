@@ -1,6 +1,6 @@
 """
-Mock GPIO Implementation for Windows Development
-Simulates GPIO behavior without actual hardware
+Implementación GPIO Simulada para Desarrollo en Windows
+Simula comportamiento GPIO sin hardware real
 """
 
 import logging
@@ -8,7 +8,7 @@ from .gpio_interface import GPIOInterface, GPIOMode, GPIODirection
 
 
 class MockGPIO(GPIOInterface):
-    """Mock GPIO for development/testing without hardware"""
+    """GPIO simulado para desarrollo/pruebas sin hardware"""
     
     def __init__(self):
         self._initialized = False
@@ -17,14 +17,14 @@ class MockGPIO(GPIOInterface):
         logging.info("Using MockGPIO (simulated hardware)")
         
     def setup(self, mode: GPIOMode = GPIOMode.BCM) -> None:
-        """Initialize mock GPIO"""
+        """Inicializa GPIO simulado"""
         self._mode = mode
         self._initialized = True
         self._pins = {}
         logging.info(f"MockGPIO initialized in {mode.name} mode")
     
     def setup_pin(self, pin: int, direction: GPIODirection) -> None:
-        """Configure a simulated pin"""
+        """Configura un pin simulado"""
         if not self._initialized:
             return
             
@@ -35,7 +35,7 @@ class MockGPIO(GPIOInterface):
         logging.debug(f"MockGPIO: Pin {pin} set to {direction.name}")
     
     def output(self, pin: int, value: int) -> None:
-        """Set output value for a simulated pin"""
+        """Establece valor de salida para un pin simulado"""
         if not self._initialized or pin not in self._pins:
             return
             
@@ -47,7 +47,7 @@ class MockGPIO(GPIOInterface):
         logging.debug(f"MockGPIO: Pin {pin} set to {value}")
     
     def input(self, pin: int) -> int:
-        """Read input value from a simulated pin"""
+        """Lee valor de entrada de un pin simulado"""
         if not self._initialized or pin not in self._pins:
             return 0
             
@@ -58,11 +58,11 @@ class MockGPIO(GPIOInterface):
         return self._pins[pin]['value']
     
     def cleanup(self) -> None:
-        """Clean up mock GPIO resources"""
+        """Limpia recursos GPIO simulado"""
         self._initialized = False
         self._pins = {}
         logging.info("MockGPIO cleaned up")
     
     def is_available(self) -> bool:
-        """Mock GPIO is always available"""
+        """GPIO simulado siempre está disponible"""
         return True

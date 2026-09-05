@@ -1,5 +1,5 @@
 """
-Raspberry Pi GPIO Implementation using RPi.GPIO
+Implementación GPIO Raspberry Pi usando RPi.GPIO
 """
 
 import logging
@@ -14,7 +14,7 @@ except (ImportError, RuntimeError):
 
 
 class PiGPIO(GPIOInterface):
-    """Raspberry Pi GPIO implementation using RPi.GPIO"""
+    """Implementación GPIO Raspberry Pi usando RPi.GPIO"""
     
     def __init__(self):
         self._initialized = False
@@ -23,7 +23,7 @@ class PiGPIO(GPIOInterface):
         self._pins = {}  # Simulated pin states for fallback
         
     def setup(self, mode: GPIOMode = GPIOMode.BCM) -> None:
-        """Initialize GPIO with given numbering mode"""
+        """Inicializa GPIO con el modo de numeración dado"""
         if not GPIO_AVAILABLE:
             logging.warning("GPIO not available, using mock fallback")
             self._using_fallback = True
@@ -49,7 +49,7 @@ class PiGPIO(GPIOInterface):
             self._pins = {}
     
     def setup_pin(self, pin: int, direction: GPIODirection) -> None:
-        """Configure a specific pin"""
+        """Configura un pin específico"""
         if self._using_fallback:
             self._pins[pin] = {'direction': direction, 'value': 0}
             logging.debug(f"Mock GPIO: Pin {pin} set to {direction.name}")
@@ -67,7 +67,7 @@ class PiGPIO(GPIOInterface):
             logging.error(f"Failed to setup pin {pin}: {e}")
     
     def output(self, pin: int, value: int) -> None:
-        """Set output value for a pin"""
+        """Establece valor de salida para un pin"""
         if self._using_fallback:
             if pin in self._pins and self._pins[pin]['direction'] == GPIODirection.OUTPUT:
                 self._pins[pin]['value'] = value
@@ -83,7 +83,7 @@ class PiGPIO(GPIOInterface):
             logging.error(f"Failed to set output on pin {pin}: {e}")
     
     def input(self, pin: int) -> int:
-        """Read input value from a pin"""
+        """Lee valor de entrada de un pin"""
         if self._using_fallback:
             if pin in self._pins and self._pins[pin]['direction'] == GPIODirection.INPUT:
                 return self._pins[pin]['value']
@@ -99,7 +99,7 @@ class PiGPIO(GPIOInterface):
             return 0
     
     def cleanup(self) -> None:
-        """Clean up GPIO resources"""
+        """Limpia recursos GPIO"""
         if GPIO_AVAILABLE and self._initialized and not self._using_fallback:
             try:
                 GPIO.cleanup()
@@ -109,5 +109,5 @@ class PiGPIO(GPIOInterface):
         self._pins = {}
     
     def is_available(self) -> bool:
-        """Check if GPIO hardware is available"""
+        """Verifica si el hardware GPIO está disponible"""
         return True  # Always returns True now (fallback available)

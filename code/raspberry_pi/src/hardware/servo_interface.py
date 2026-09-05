@@ -1,48 +1,48 @@
 """
-Servo Interface - Abstract base class for servo motor implementations
+Interfaz de Servo - Clase base abstracta para implementaciones de motor servo
 """
 
 from abc import ABC, abstractmethod
 
 
 class ServoInterface(ABC):
-    """Abstract interface for servo motor control"""
+    """Interfaz abstracta para control de motor servo"""
     
     @abstractmethod
     def setup(self, pin: int, frequency: int = 50) -> bool:
         """
-        Initialize servo on given pin
+        Inicializa servo en el pin dado
         
         Args:
-            pin: GPIO pin number
-            frequency: PWM frequency in Hz (default 50 for servos)
+            pin: Número de pin GPIO
+            frequency: Frecuencia PWM en Hz (default 50 para servos)
             
         Returns:
-            True if successful, False otherwise
+            True si exitoso, False en caso contrario
         """
         pass
     
     @abstractmethod
     def set_angle(self, angle: float) -> None:
         """
-        Set servo angle
+        Establece ángulo del servo
         
         Args:
-            angle: Angle in degrees (0-180)
+            angle: Ángulo en grados (0-180)
         """
         pass
     
     @abstractmethod
     def stop(self) -> None:
-        """Stop servo PWM signal"""
+        """Detiene señal PWM del servo"""
         pass
     
     @abstractmethod
     def cleanup(self) -> None:
-        """Clean up servo resources"""
+        """Limpia recursos del servo"""
         pass
     
     @abstractmethod
     def is_available(self) -> bool:
-        """Check if servo hardware is available"""
+        """Verifica si el hardware del servo está disponible"""
         pass

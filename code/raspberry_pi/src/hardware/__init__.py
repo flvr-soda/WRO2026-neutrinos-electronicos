@@ -1,6 +1,6 @@
 """
-Hardware Abstraction Layer
-Provides interfaces for hardware components with mock implementations for development.
+Capa de Abstracción de Hardware
+Proporciona interfaces para componentes de hardware con implementaciones simuladas para desarrollo.
 """
 
 from .camera_interface import CameraInterface
@@ -27,16 +27,16 @@ __all__ = [
 
 def get_camera(use_mock: bool = False) -> CameraInterface:
     """
-    Factory function to get appropriate camera implementation
+    Función fábrica para obtener la implementación de cámara apropiada
     
-    Pi implementations now have automatic fallback built-in, so they work
-    even when hardware/libraries are unavailable.
+    Las implementaciones Pi ahora tienen fallback automático integrado, así que funcionan
+    incluso cuando el hardware/bibliotecas no están disponibles.
     
     Args:
-        use_mock: If True, explicitly use mock implementation; otherwise use Pi implementation
+        use_mock: Si True, usa explícitamente implementación simulada; de lo contrario usa implementación Pi
         
     Returns:
-        CameraInterface instance
+        Instancia de CameraInterface
     """
     if use_mock:
         return MockCamera()
@@ -46,16 +46,16 @@ def get_camera(use_mock: bool = False) -> CameraInterface:
 
 def get_gpio(use_mock: bool = False) -> GPIOInterface:
     """
-    Factory function to get appropriate GPIO implementation
+    Función fábrica para obtener la implementación GPIO apropiada
     
-    Pi implementations now have automatic fallback built-in, so they work
-    even when hardware/libraries are unavailable.
+    Las implementaciones Pi ahora tienen fallback automático integrado, así que funcionan
+    incluso cuando el hardware/bibliotecas no están disponibles.
     
     Args:
-        use_mock: If True, explicitly use mock implementation; otherwise use Pi implementation
+        use_mock: Si True, usa explícitamente implementación simulada; de lo contrario usa implementación Pi
         
     Returns:
-        GPIOInterface instance
+        Instancia de GPIOInterface
     """
     if use_mock:
         return MockGPIO()
@@ -65,16 +65,16 @@ def get_gpio(use_mock: bool = False) -> GPIOInterface:
 
 def get_servo(use_mock: bool = False) -> ServoInterface:
     """
-    Factory function to get appropriate servo implementation
+    Función fábrica para obtener la implementación de servo apropiada
     
-    Pi implementations now have automatic fallback built-in, so they work
-    even when hardware/libraries are unavailable.
+    Las implementaciones Pi ahora tienen fallback automático integrado, así que funcionan
+    incluso cuando el hardware/bibliotecas no están disponibles.
     
     Args:
-        use_mock: If True, explicitly use mock implementation; otherwise use Pi implementation
+        use_mock: Si True, usa explícitamente implementación simulada; de lo contrario usa implementación Pi
         
     Returns:
-        ServoInterface instance
+        Instancia de ServoInterface
     """
     if use_mock:
         return MockServo()

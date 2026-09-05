@@ -1,5 +1,5 @@
 """
-Raspberry Pi Servo Implementation using RPi.GPIO PWM
+Implementación de Servo Raspberry Pi usando RPi.GPIO PWM
 """
 
 import logging
@@ -15,7 +15,7 @@ except (ImportError, RuntimeError):
 
 
 class PiServo(ServoInterface):
-    """Raspberry Pi servo implementation using RPi.GPIO PWM"""
+    """Implementación de servo Raspberry Pi usando RPi.GPIO PWM"""
     
     def __init__(self):
         self.pwm = None
@@ -26,7 +26,7 @@ class PiServo(ServoInterface):
         self._using_fallback = False
         
     def setup(self, pin: int, frequency: int = 50) -> bool:
-        """Initialize servo on given pin"""
+        """Inicializa servo en el pin dado"""
         if not GPIO_AVAILABLE:
             logging.warning("GPIO not available for servo, using mock fallback")
             self._using_fallback = True
@@ -56,13 +56,13 @@ class PiServo(ServoInterface):
             return True
     
     def set_angle(self, angle: float) -> None:
-        """Set servo angle (0-180 degrees)"""
+        """Establece ángulo del servo (0-180 grados)"""
         if self._using_fallback:
-            # Clamp angle to valid range
+            # Limitar ángulo al rango válido
             angle = max(0, min(180, angle))
             self._current_angle = angle
             logging.debug(f"Mock servo: Angle set to {angle} degrees")
-            time.sleep(0.01)  # Simulate servo movement delay
+            time.sleep(0.01)  # Simular retraso de movimiento del servo
             return
             
         if not self._initialized or self.pwm is None:
@@ -72,18 +72,18 @@ class PiServo(ServoInterface):
             # Clamp angle to valid range
             angle = max(0, min(180, angle))
             
-            # Convert angle to duty cycle (2.5% to 12.5% for 0-180 degrees)
+            # Convertir ángulo a ciclo de trabajo (2.5% a 12.5% para 0-180 grados)
             duty_cycle = angle / 18.0 + 2.5
             self.pwm.ChangeDutyCycle(duty_cycle)
             self._current_angle = angle
-            time.sleep(0.1)  # Small delay for servo to move
+            time.sleep(0.1)  # Pequeño retraso para que el servo se mueva
         except Exception as e:
             logging.error(f"Failed to set servo angle: {e}. Switching to fallback.")
             self._using_fallback = True
             self._current_angle = max(0, min(180, angle))
     
     def stop(self) -> None:
-        """Stop servo PWM signal"""
+        """Detiene señal PWM del servo"""
         if self._using_fallback:
             logging.debug("Mock servo: PWM stopped")
             return
@@ -95,7 +95,7 @@ class PiServo(ServoInterface):
                 logging.error(f"Error stopping servo PWM: {e}")
     
     def cleanup(self) -> None:
-        """Clean up servo resources"""
+        """Limpia recursos del servo"""
         if self.pwm and not self._using_fallback:
             try:
                 self.pwm.stop()
@@ -106,5 +106,5 @@ class PiServo(ServoInterface):
         self._using_fallback = False
     
     def is_available(self) -> bool:
-        """Check if servo hardware is available"""
+        """Verifica si el hardware del servo está disponible"""
         return True  # Always returns True now (fallback available)

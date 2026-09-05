@@ -1,6 +1,6 @@
 """
-Mock Servo Implementation for Windows Development
-Simulates servo behavior without actual hardware
+Implementación de Servo Simulado para Desarrollo en Windows
+Simula comportamiento de servo sin hardware real
 """
 
 import logging
@@ -9,7 +9,7 @@ from .servo_interface import ServoInterface
 
 
 class MockServo(ServoInterface):
-    """Mock servo for development/testing without hardware"""
+    """Servo simulado para desarrollo/pruebas sin hardware"""
     
     def __init__(self):
         self.pin = None
@@ -19,7 +19,7 @@ class MockServo(ServoInterface):
         logging.info("Using MockServo (simulated hardware)")
         
     def setup(self, pin: int, frequency: int = 50) -> bool:
-        """Initialize mock servo"""
+        """Inicializa servo simulado"""
         self.pin = pin
         self.frequency = frequency
         self._initialized = True
@@ -28,26 +28,26 @@ class MockServo(ServoInterface):
         return True
     
     def set_angle(self, angle: float) -> None:
-        """Set simulated servo angle (0-180 degrees)"""
+        """Establece ángulo simulado del servo (0-180 grados)"""
         if not self._initialized:
             return
             
-        # Clamp angle to valid range
+        # Limitar ángulo al rango válido
         angle = max(0, min(180, angle))
         self._current_angle = angle
         logging.debug(f"MockServo: Angle set to {angle} degrees")
-        # Simulate servo movement delay
+        # Simular retraso de movimiento del servo
         time.sleep(0.01)
     
     def stop(self) -> None:
-        """Stop mock servo PWM signal (no-op)"""
+        """Detiene señal PWM del servo simulado (sin operación)"""
         logging.debug("MockServo: PWM stopped")
     
     def cleanup(self) -> None:
-        """Clean up mock servo resources"""
+        """Limpia recursos del servo simulado"""
         self._initialized = False
         logging.info("MockServo cleaned up")
     
     def is_available(self) -> bool:
-        """Mock servo is always available"""
+        """Servo simulado siempre está disponible"""
         return True
