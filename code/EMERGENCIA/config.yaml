@@ -5,4 +5,4 @@ modo: "abierto"  # "abierto" para main.py (reto abierto), "obstaculos" para main
 
 # Configuración de hardware
 hardware:
-  pin_boton_inicio: 23  # GPIO 23 (Pin físico 16) - Compartido con sistema principal
+  pin_boton_inicio: 17  # GPIO 17 (Pin físico 11) - Compartido con sistema principal

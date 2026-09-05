@@ -5,7 +5,7 @@ Objetivo: Completar 3 vueltas (12 esquinas) al circuito en el menor tiempo posib
 
 Protocolo WRO:
 1. Encendido: Inicializa sensores y queda en modo STANDBY.
-2. Botón de inicio: Al presionar el botón físico (GPIO 23), arranca la carrera.
+2. Pulsador de retención: Al cambiar el estado del switch físico (GPIO 17), arranca la carrera.
 3. Carrera: Avanza en línea recta y gira a la derecha al detectar pared frontal con LiDAR.
 4. Finalización: Completa 12 esquinas (3 vueltas), frena y se detiene.
 """
@@ -15,6 +15,8 @@ import glob
 import struct
 import serial
 import logging
+import yaml
+import os
 
 try:
     from gpiozero import Button
@@ -28,9 +30,27 @@ PUERTO_LIDAR = "/dev/serial0"
 BAUD_LIDAR = 115200
 BAUD_ARDUINO = 115200
 
+# Cargar configuración desde config.yaml
+def cargar_config():
+    config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            if config is None:
+                config = {}
+            return config
+    except FileNotFoundError:
+        logging.warning(f"Archivo config.yaml no encontrado en {config_path}. Usando valores por defecto.")
+        return {}
+    except yaml.YAMLError as e:
+        logging.error(f"Error al parsear config.yaml: {e}. Usando valores por defecto.")
+        return {}
+
+config = cargar_config()
+
 # Botón de inicio físico (Regla WRO 9.11)
-# Compartido con el sistema principal - GPIO 23 (Pin físico 16)
-PIN_BOTON_INICIO = 23
+# Compartido con el sistema principal - GPIO 17 (Pin físico 11)
+PIN_BOTON_INICIO = config.get('hardware', {}).get('pin_boton_inicio', 17)
 
 # Parámetros de navegación
 VUELTAS_OBJETIVO = 3
@@ -194,11 +214,11 @@ class EmergencyLidarRunner:
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.boton = None
 
-        # Inicializar Botón de Inicio físico (GPIO 23)
+        # Inicializar Botón de Inicio físico (GPIO 17)
         if Button is not None:
             try:
                 self.boton = Button(PIN_BOTON_INICIO, pull_up=True)
-                logger.info(f"Botón de inicio configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 16)")
+                logger.info(f"Botón de inicio configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar botón en GPIO {PIN_BOTON_INICIO}: {e}")
                 self.boton = None
@@ -213,28 +233,29 @@ class EmergencyLidarRunner:
     def esperar_inicio(self):
         """
         Modo STANDBY tras encendido.
-        Espera a que se active el switch de inicio físico (Regla WRO 9.11).
-        Detecta el flanco de subida (switch de off a on).
+        Espera a que se active el pulsador de retención (toggle switch) físico (Regla WRO 9.11).
+        Detecta cualquier cambio de estado del switch (toggle).
         """
         logger.info("==================================================")
         logger.info("[STANDBY] Robot encendido y listo en zona de salida.")
 
         if self.boton is not None:
-            logger.info(f"Esperando activación del switch de inicio (GPIO {PIN_BOTON_INICIO})...")
-            logger.info(f"Estado inicial del switch: {'ACTIVO' if self.boton.is_pressed else 'INACTIVO'}")
+            logger.info(f"Esperando activación del pulsador de retención (GPIO {PIN_BOTON_INICIO})...")
+            logger.info(f"Estado inicial del switch: {'ON' if not self.boton.is_pressed else 'OFF'}")
             try:
-                # Esperar a que el switch se active (flanco de subida)
-                switch_state = False
+                # Esperar a que el switch cambie de estado (toggle)
+                # Con pull_up=True: is_pressed=False = ON, is_pressed=True = OFF
+                switch_state = self.boton.is_pressed
                 counter = 0
                 while True:
                     current_state = self.boton.is_pressed
                     # Log cada 20 iteraciones para no saturar
                     counter += 1
                     if counter % 20 == 0:
-                        logger.debug(f"Estado actual del switch: {'ACTIVO' if current_state else 'INACTIVO'}")
-                    # Detectar flanco de subida: estaba apagado y ahora está encendido
-                    if current_state and not switch_state:
-                        logger.info("¡Switch de inicio activado! Arrancando en 0.5 segundos...")
+                        logger.debug(f"Estado actual del switch: {'ON' if not current_state else 'OFF'}")
+                    # Detectar cualquier cambio de estado (toggle)
+                    if current_state != switch_state:
+                        logger.info(f"¡Switch cambiado de estado! Nuevo estado: {'ON' if not current_state else 'OFF'}. Arrancando en 0.5 segundos...")
                         time.sleep(0.5)
                         return True
                     switch_state = current_state
@@ -262,17 +283,24 @@ class EmergencyLidarRunner:
         logger.info("=== INICIANDO NAVEGACIÓN DE EMERGENCIA ===")
         logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
         logger.info(f"Umbral de giro frontal: {DISTANCIA_GIRO_CM} cm.")
+        logger.info(f"Velocidad crucero: {VELOCIDAD_CRUCERO}, Ángulo recto: {ANGULO_DIRECCION_RECTO}")
 
         periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
 
         # Cooldown inicial: forzar espera del cooldown completo antes de detectar la primera esquina
         # Evita que una pared cercana al arranque dispare un giro falso inmediato
         self.tiempo_ultima_esquina = time.monotonic()
+        
+        # Enviar comando inicial para arrancar motores
+        logger.info("Enviando comando inicial de arranque...")
+        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
         try:
+            counter = 0
             while self.esquinas_completadas < TOTAL_ESQUINAS:
                 t_inicio_iter = time.monotonic()
                 ahora = time.monotonic()  # Usar reloj monotónico en todo el bucle (inmune a NTP)
+                counter += 1
 
                 # Leer telemetría del Arduino para verificar comunicación
                 self.arduino.leer_telemetria()
@@ -304,6 +332,8 @@ class EmergencyLidarRunner:
                         self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
                     else:
                         # Recta normal
+                        if counter % 20 == 0:  # Log cada 20 iteraciones
+                            logger.info(f"[RECTA] Distancia: {dist:.1f} cm, Velocidad: {VELOCIDAD_CRUCERO}, Ángulo: {ANGULO_DIRECCION_RECTO}")
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
                 else:
