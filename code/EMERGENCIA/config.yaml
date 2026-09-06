@@ -23,28 +23,28 @@ navegacion:
 # Velocidades compartidas (-100 a 100)
 velocidades:
   crucero: 65        # Velocidad en tramos rectos
-  giro: 45          # Velocidad durante giros de esquina
-  esquiva: 40       # Velocidad durante esquiva (main_obstaculos.py)
+  giro: 35          # Velocidad durante giros de esquina (reducida de 45)
+  esquiva: 30       # Velocidad durante esquiva (reducida de 40)
 
 # Ángulos de dirección del carro compartidos (valores Arduino)
 angulos_direccion:
   recto: 90
-  giro_derecha: 50   # Giro máximo derecha
-  giro_izquierda: 130 # Giro máximo izquierda
+  giro_derecha: 30   # Giro máximo derecha (aumentado de 50 a 30 para más giro)
+  giro_izquierda: 150 # Giro máximo izquierda (aumentado de 130 a 150 para más giro)
 
 # Umbrales de distancia LiDAR (en cm)
 lidar:
-  distancia_giro_cm: 75.0        # Distancia frontal para iniciar giro de esquina
+  distancia_giro_cm: 85.0        # Distancia frontal para iniciar giro de esquina (aumentado de 75 a 85)
   distancia_obstaculo_cm: 50.0  # Distancia frontal para detectar obstáculo (main_obstaculos.py)
   distancia_despejada_cm: 110.0 # Distancia a la que se considera la pista despejada
 
 # Tiempos de control
 tiempos:
-  duracion_max_giro_seg: 1.6      # Tiempo máximo de giro forzado por esquina
-  duracion_min_giro_seg: 0.5      # Tiempo mínimo forzado con dirección a la derecha
+  duracion_max_giro_seg: 2.0      # Tiempo máximo de giro forzado por esquina (aumentado de 1.6)
+  duracion_min_giro_seg: 0.8      # Tiempo mínimo forzado con dirección a la derecha (aumentado de 0.5)
   cooldown_esquina_seg: 1.4       # Tiempo mínimo entre detección de esquinas
-  duracion_esquiva_seg: 0.8       # Tiempo máximo con dirección de esquiva aplicada
-  duracion_min_esquiva_seg: 0.3   # Tiempo mínimo de esquiva forzado
+  duracion_esquiva_seg: 1.2       # Tiempo máximo con dirección de esquiva aplicada (aumentado de 0.8)
+  duracion_min_esquiva_seg: 0.5   # Tiempo mínimo de esquiva forzado (aumentado de 0.3)
 
 # Ángulos del servo LiDAR (para main_obstaculos.py) - Rango máximo 0-180°
 servo_lidar:
