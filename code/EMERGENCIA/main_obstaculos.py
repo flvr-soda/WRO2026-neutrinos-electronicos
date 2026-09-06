@@ -6,11 +6,11 @@ Objetivo: Completar 3 vueltas (12 esquinas) esquivando obstáculos en el trayect
 
 Protocolo WRO:
 1. Encendido: Inicializa sensores y queda en modo STANDBY.
-2. Botón de inicio: Al presionar el botón físico (GPIO 23), arranca la carrera.
+2. Pulsador de retención: Al cambiar el estado del switch físico (GPIO 17), arranca la carrera.
 3. Carrera:
    - Avanza en recta. LiDAR apunta al frente (90°).
    - Si detecta obstáculo frontal cercano (<= DIST_OBSTACULO_CM):
-       Hace mini barrido: mide a izquierda (~60°) y derecha (~120°).
+       Hace mini barrido: mide a izquierda (0°) y derecha (180°) - rango máximo del servo.
        Esquiva por el lado con mayor espacio libre.
    - Si detecta pared de contención (<= DIST_PARED_ESQUINA_CM):
        Gira a la derecha y cuenta la esquina.
@@ -18,6 +18,8 @@ Protocolo WRO:
 
 NOTA: Sin cámara, no se detecta color del pilar. El algoritmo esquiva
       por el lado con más espacio, lo cual puede no cumplir la regla de colores.
+
+CONFIGURACIÓN: Todos los parámetros se cargan desde config.yaml en el mismo directorio.
 """
 
 import time
@@ -25,6 +27,8 @@ import glob
 import struct
 import serial
 import logging
+import yaml
+import os
 
 try:
     from gpiozero import Button, AngularServo
@@ -34,54 +38,71 @@ except ImportError:
 
 # CONFIGURACIÓN DIRECTA
 
+# Cargar configuración desde config.yaml
+def cargar_config():
+    config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            if config is None:
+                config = {}
+            return config
+    except FileNotFoundError:
+        logging.warning(f"Archivo config.yaml no encontrado en {config_path}. Usando valores por defecto.")
+        return {}
+    except yaml.YAMLError as e:
+        logging.error(f"Error al parsear config.yaml: {e}. Usando valores por defecto.")
+        return {}
+
+config = cargar_config()
+
 # Conexiones seriales
-PUERTO_LIDAR = "/dev/serial0"
-BAUD_LIDAR = 115200
-BAUD_ARDUINO = 115200
+PUERTO_LIDAR = config.get('serial', {}).get('puerto_lidar', "/dev/serial0")
+BAUD_LIDAR = config.get('serial', {}).get('baud_lidar', 115200)
+BAUD_ARDUINO = config.get('serial', {}).get('baud_arduino', 115200)
 
 # Servo del LiDAR (para mini barrido de esquiva)
-PIN_SERVO_LIDAR = 18
-ANGULO_FRENTE = 90      # LiDAR mirando al frente
-ANGULO_IZQUIERDA = 60   # LiDAR mirando a la izquierda
-ANGULO_DERECHA = 120    # LiDAR mirando a la derecha
+PIN_SERVO_LIDAR = config.get('hardware', {}).get('pin_servo_lidar', 18)
+ANGULO_FRENTE = config.get('servo_lidar', {}).get('angulo_frente', 90)      # LiDAR mirando al frente
+ANGULO_IZQUIERDA = config.get('servo_lidar', {}).get('angulo_izquierda', 0)   # LiDAR mirando a la izquierda (máximo rango)
+ANGULO_DERECHA = config.get('servo_lidar', {}).get('angulo_derecha', 180)    # LiDAR mirando a la derecha (máximo rango)
 
 # Botón de inicio físico (Regla WRO 9.11)
-PIN_BOTON_INICIO = 23   # GPIO 23 (Pin físico 16)
+PIN_BOTON_INICIO = config.get('hardware', {}).get('pin_boton_inicio', 17)
 
 # Parámetros de navegación
-VUELTAS_OBJETIVO = 3
-ESQUINAS_POR_VUELTA = 4
+VUELTAS_OBJETIVO = config.get('navegacion', {}).get('vueltas_objetivo', 3)
+ESQUINAS_POR_VUELTA = config.get('navegacion', {}).get('esquinas_por_vuelta', 4)
 TOTAL_ESQUINAS = VUELTAS_OBJETIVO * ESQUINAS_POR_VUELTA  # 12 esquinas
 
 # Velocidades (-100 a 100)
-VELOCIDAD_CRUCERO = 60    # Velocidad en tramos rectos
-VELOCIDAD_ESQUIVA = 40    # Velocidad durante la maniobra de esquiva
-VELOCIDAD_GIRO = 40       # Velocidad durante el giro de esquina
+VELOCIDAD_CRUCERO = config.get('velocidades', {}).get('crucero', 60)    # Velocidad en tramos rectos
+VELOCIDAD_ESQUIVA = config.get('velocidades', {}).get('esquiva', 40)    # Velocidad durante la maniobra de esquiva
+VELOCIDAD_GIRO = config.get('velocidades', {}).get('giro', 40)       # Velocidad durante el giro de esquina
 
 # Ángulos del servo de dirección del carro (valores Arduino)
-ANGULO_DIRECCION_RECTO = 90
-ANGULO_GIRO_DERECHA = 50    # Giro máximo derecha
-ANGULO_GIRO_IZQUIERDA = 130 # Giro máximo izquierda
+ANGULO_DIRECCION_RECTO = config.get('angulos_direccion', {}).get('recto', 90)
+ANGULO_GIRO_DERECHA = config.get('angulos_direccion', {}).get('giro_derecha', 50)    # Giro máximo derecha
+ANGULO_GIRO_IZQUIERDA = config.get('angulos_direccion', {}).get('giro_izquierda', 130) # Giro máximo izquierda
 
 # Umbrales de distancia LiDAR (en cm)
-DIST_PARED_ESQUINA_CM = 75.0   # Distancia frontal para iniciar giro de esquina
-DIST_OBSTACULO_CM = 50.0       # Distancia frontal para detectar pilar obstáculo
-                                # Debe ser < DIST_PARED_ESQUINA_CM
-DIST_LIBRE_CM = 90.0           # Distancia a la que se considera la pista despejada
+DIST_PARED_ESQUINA_CM = config.get('lidar', {}).get('distancia_giro_cm', 75.0)   # Distancia frontal para iniciar giro de esquina
+DIST_OBSTACULO_CM = config.get('lidar', {}).get('distancia_obstaculo_cm', 50.0)       # Distancia frontal para detectar pilar obstáculo
+DIST_LIBRE_CM = config.get('lidar', {}).get('distancia_despejada_cm', 90.0)           # Distancia a la que se considera la pista despejada
 
 # Tiempos de control de esquina
-DURACION_MAX_GIRO_ESQUINA_SEG = 1.6
-DURACION_MIN_GIRO_ESQUINA_SEG = 0.5
-TIEMPO_COOLDOWN_ESQUINA_SEG = 1.4
+DURACION_MAX_GIRO_ESQUINA_SEG = config.get('tiempos', {}).get('duracion_max_giro_seg', 1.6)
+DURACION_MIN_GIRO_ESQUINA_SEG = config.get('tiempos', {}).get('duracion_min_giro_seg', 0.5)
+TIEMPO_COOLDOWN_ESQUINA_SEG = config.get('tiempos', {}).get('cooldown_esquina_seg', 1.4)
 
 # Tiempos de control de esquiva de obstáculo
-DURACION_ESQUIVA_SEG = 0.8      # Tiempo máximo con dirección de esquiva aplicada
-DURACION_MIN_ESQUIVA_SEG = 0.3  # Tiempo mínimo de esquiva forzado
+DURACION_ESQUIVA_SEG = config.get('tiempos', {}).get('duracion_esquiva_seg', 0.8)      # Tiempo máximo con dirección de esquiva aplicada
+DURACION_MIN_ESQUIVA_SEG = config.get('tiempos', {}).get('duracion_min_esquiva_seg', 0.3)  # Tiempo mínimo de esquiva forzado
 
 # Tiempo de asentamiento del servo LiDAR para barrido
-MS_POR_GRADO_SERVO = 5         # ~5 ms/grado para barrido rápido
+MS_POR_GRADO_SERVO = config.get('servo_lidar', {}).get('ms_por_grado', 5)         # ~5 ms/grado para barrido rápido
 
-FRECUENCIA_CONTROL_HZ = 40     # Tasa del bucle principal
+FRECUENCIA_CONTROL_HZ = config.get('navegacion', {}).get('frecuencia_control_hz', 40)     # Tasa del bucle principal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,9 +135,10 @@ class DirectLidar:
         if AngularServo is not None:
             try:
                 # gpiozero AngularServo: -90 a +90; convertimos desde 0-180
+                # Rango máximo: 0° (izquierda extrema) a 180° (derecha extrema)
                 self.servo = AngularServo(PIN_SERVO_LIDAR, min_angle=-90, max_angle=90, initial_angle=0)
                 self.apuntar(ANGULO_FRENTE)
-                logger.info(f"Servo LiDAR inicializado en GPIO {PIN_SERVO_LIDAR}")
+                logger.info(f"Servo LiDAR inicializado en GPIO {PIN_SERVO_LIDAR} (rango 0-180°)")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar servo LiDAR: {e}")
                 self.servo = None
@@ -204,20 +226,23 @@ class DirectArduino:
 
     def conectar(self):
         if not self.port:
-            logger.warning("No se encontró puerto Arduino automáticamente.")
+            logger.warning("[CONECT] No se encontró puerto Arduino automáticamente.")
             return
 
         try:
+            logger.info(f"[CONECT] Intentando conectar a Arduino en {self.port} a {self.baudrate} baud...")
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             time.sleep(1.8)  # Tiempo de reinicio del bootloader de Arduino
-            logger.info(f"Arduino conectado en {self.port}")
+            logger.info(f"[CONECT] Arduino conectado exitosamente en {self.port}")
+            logger.info(f"[CONECT] Estado conexión: {self.conn.is_open}")
         except Exception as e:
-            logger.error(f"Error conectando a Arduino en {self.port}: {e}")
+            logger.error(f"[ERROR] Error conectando a Arduino en {self.port}: {e}")
             self.conn = None
 
     def enviar(self, velocidad: int, angulo: int):
         """Envía comando en formato V:<vel>;A:<ang>\n"""
         if not self.conn or not self.conn.is_open:
+            logger.warning("[COMANDO] Arduino no conectado, no se puede enviar comando")
             return
 
         velocidad = max(-100, min(100, int(velocidad)))
@@ -225,10 +250,12 @@ class DirectArduino:
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
+            logger.info(f"[COMANDO] Raw: {repr(comando)} | Vel: {velocidad} | Ang: {angulo}")
             self.conn.write(comando.encode('utf-8'))
             self.conn.flush()
+            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
         except Exception as e:
-            logger.error(f"Error enviando comando a Arduino: {e}")
+            logger.error(f"[ERROR] Error enviando comando a Arduino: {e}")
 
     def frenar(self):
         self.enviar(0, ANGULO_DIRECCION_RECTO)
@@ -255,9 +282,9 @@ class ObstacleRunner:
         if Button is not None:
             try:
                 self.boton = Button(PIN_BOTON_INICIO, pull_up=True)
-                logger.info(f"Botón de inicio configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 16)")
+                logger.info(f"Pulsador de retención configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
             except Exception as e:
-                logger.warning(f"No se pudo inicializar botón: {e}")
+                logger.warning(f"No se pudo inicializar pulsador de retención: {e}")
                 self.boton = None
 
         self.estado = self.ESTADO_RECTA
@@ -268,22 +295,40 @@ class ObstacleRunner:
         self.angulo_esquiva_activo = ANGULO_DIRECCION_RECTO
 
     def esperar_inicio(self):
-        """Modo STANDBY hasta que se presione el botón de inicio (Regla WRO 9.11)."""
+        """
+        Modo STANDBY tras encendido.
+        Espera a que se active el pulsador de retención (toggle switch) físico (Regla WRO 9.11).
+        Detecta cualquier cambio de estado del switch (toggle).
+        """
         logger.info("==================================================")
         logger.info("[STANDBY] Robot encendido y listo en zona de salida.")
 
         if self.boton is not None:
-            logger.info(f"Esperando pulsación del botón de inicio (GPIO {PIN_BOTON_INICIO})...")
+            logger.info(f"Esperando activación del pulsador de retención (GPIO {PIN_BOTON_INICIO})...")
+            logger.info(f"Estado inicial del switch: {'ON' if not self.boton.is_pressed else 'OFF'}")
             try:
-                self.boton.wait_for_press()
-                logger.info("¡Botón de inicio presionado! Arrancando en 0.5 segundos...")
-                time.sleep(0.5)
-                return True
+                # Esperar a que el switch cambie de estado (toggle)
+                # Con pull_up=True: is_pressed=False = ON, is_pressed=True = OFF
+                switch_state = self.boton.is_pressed
+                counter = 0
+                while True:
+                    current_state = self.boton.is_pressed
+                    # Log cada 20 iteraciones para no saturar
+                    counter += 1
+                    if counter % 20 == 0:
+                        logger.debug(f"Estado actual del switch: {'ON' if not current_state else 'OFF'}")
+                    # Detectar cualquier cambio de estado (toggle)
+                    if current_state != switch_state:
+                        logger.info(f"¡Switch cambiado de estado! Nuevo estado: {'ON' if not current_state else 'OFF'}. Arrancando en 0.5 segundos...")
+                        time.sleep(0.5)
+                        return True
+                    switch_state = current_state
+                    time.sleep(0.05)
             except KeyboardInterrupt:
                 logger.info("Cancelado en standby por teclado.")
                 return False
         else:
-            logger.info("Botón GPIO no disponible. Presione ENTER en consola para iniciar carrera...")
+            logger.info("Switch GPIO no disponible. Presione ENTER en consola para iniciar carrera...")
             try:
                 input()
                 logger.info("¡Comando de inicio recibido! Arrancando en 0.5 segundos...")

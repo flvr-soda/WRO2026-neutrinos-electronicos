@@ -8,6 +8,8 @@ Protocolo WRO:
 2. Pulsador de retención: Al cambiar el estado del switch físico (GPIO 17), arranca la carrera.
 3. Carrera: Avanza en línea recta y gira a la derecha al detectar pared frontal con LiDAR.
 4. Finalización: Completa 12 esquinas (3 vueltas), frena y se detiene.
+
+CONFIGURACIÓN: Todos los parámetros se cargan desde config.yaml en el mismo directorio.
 """
 
 import time
@@ -24,11 +26,6 @@ except ImportError:
     Button = None
 
 # CONFIGURACIÓN DIRECTA
-
-# Conexiones seriales
-PUERTO_LIDAR = "/dev/serial0"
-BAUD_LIDAR = 115200
-BAUD_ARDUINO = 115200
 
 # Cargar configuración desde config.yaml
 def cargar_config():
@@ -48,32 +45,37 @@ def cargar_config():
 
 config = cargar_config()
 
+# Conexiones seriales
+PUERTO_LIDAR = config.get('serial', {}).get('puerto_lidar', "/dev/serial0")
+BAUD_LIDAR = config.get('serial', {}).get('baud_lidar', 115200)
+BAUD_ARDUINO = config.get('serial', {}).get('baud_arduino', 115200)
+
 # Botón de inicio físico (Regla WRO 9.11)
 # Compartido con el sistema principal - GPIO 17 (Pin físico 11)
 PIN_BOTON_INICIO = config.get('hardware', {}).get('pin_boton_inicio', 17)
 
 # Parámetros de navegación
-VUELTAS_OBJETIVO = 3
-ESQUINAS_POR_VUELTA = 4
+VUELTAS_OBJETIVO = config.get('navegacion', {}).get('vueltas_objetivo', 3)
+ESQUINAS_POR_VUELTA = config.get('navegacion', {}).get('esquinas_por_vuelta', 4)
 TOTAL_ESQUINAS = VUELTAS_OBJETIVO * ESQUINAS_POR_VUELTA  # 12 esquinas en total
 
 # Velocidades (-100 a 100)
-VELOCIDAD_CRUCERO = 65    # Velocidad en tramos rectos
-VELOCIDAD_GIRO = 45       # Velocidad durante el viraje en esquina
+VELOCIDAD_CRUCERO = config.get('velocidades', {}).get('crucero', 65)    # Velocidad en tramos rectos
+VELOCIDAD_GIRO = config.get('velocidades', {}).get('giro', 45)       # Velocidad durante el viraje en esquina
 
 # Ángulos del servo de dirección del carro (valores Arduino)
-ANGULO_DIRECCION_RECTO = 90
-ANGULO_GIRO_DERECHA = 50   # Ángulo para girar a la derecha
+ANGULO_DIRECCION_RECTO = config.get('angulos_direccion', {}).get('recto', 90)
+ANGULO_GIRO_DERECHA = config.get('angulos_direccion', {}).get('giro_derecha', 50)   # Ángulo para girar a la derecha
 
 # Umbrales de distancia LiDAR (en cm)
-DISTANCIA_GIRO_CM = 75.0      # Distancia a la pared frontal para iniciar el giro
-DISTANCIA_DESPEJADA_CM = 110.0 # Distancia a la que se considera la pista despejada tras el giro
+DISTANCIA_GIRO_CM = config.get('lidar', {}).get('distancia_giro_cm', 75.0)      # Distancia a la pared frontal para iniciar el giro
+DISTANCIA_DESPEJADA_CM = config.get('lidar', {}).get('distancia_despejada_cm', 110.0) # Distancia a la que se considera la pista despejada tras el giro
 
 # Tiempos de control
-DURACION_MAX_GIRO_SEG = 1.6   # Tiempo máximo de giro forzado por esquina si la distancia tarda en despejarse
-DURACION_MIN_GIRO_SEG = 0.5   # Tiempo mínimo forzado con dirección a la derecha
-TIEMPO_COOLDOWN_ESQUINA_SEG = 1.4 # Tiempo mínimo entre detección de esquinas para evitar rebotes/doble conteo
-FRECUENCIA_CONTROL_HZ = 40    # Tasa del bucle principal
+DURACION_MAX_GIRO_SEG = config.get('tiempos', {}).get('duracion_max_giro_seg', 1.6)   # Tiempo máximo de giro forzado por esquina si la distancia tarda en despejarse
+DURACION_MIN_GIRO_SEG = config.get('tiempos', {}).get('duracion_min_giro_seg', 0.5)   # Tiempo mínimo forzado con dirección a la derecha
+TIEMPO_COOLDOWN_ESQUINA_SEG = config.get('tiempos', {}).get('cooldown_esquina_seg', 1.4) # Tiempo mínimo entre detección de esquinas para evitar rebotes/doble conteo
+FRECUENCIA_CONTROL_HZ = config.get('navegacion', {}).get('frecuencia_control_hz', 40)    # Tasa del bucle principal
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -149,19 +151,22 @@ class DirectArduino:
 
     def conectar(self):
         if not self.port:
-            logger.warning("No se encontró puerto Arduino automáticamente.")
+            logger.warning("[CONECT] No se encontró puerto Arduino automáticamente.")
             return
 
         try:
+            logger.info(f"[CONECT] Intentando conectar a Arduino en {self.port} a {self.baudrate} baud...")
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             time.sleep(1.8)  # Tiempo de reinicio del bootloader de Arduino
-            logger.info(f"Arduino conectado en {self.port}")
+            logger.info(f"[CONECT] Arduino conectado exitosamente en {self.port}")
+            logger.info(f"[CONECT] Estado conexión: {self.conn.is_open}")
 
             # Limpiar buffer de recepción
             self.conn.reset_input_buffer()
             self.conn.reset_output_buffer()
+            logger.info(f"[CONECT] Buffers limpiados")
         except Exception as e:
-            logger.error(f"Error conectando a Arduino en {self.port}: {e}")
+            logger.error(f"[ERROR] Error conectando a Arduino en {self.port}: {e}")
             self.conn = None
 
     def enviar(self, velocidad: int, angulo: int):
@@ -176,25 +181,27 @@ class DirectArduino:
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
+            logger.info(f"[COMANDO] Raw: {repr(comando)} | Vel: {velocidad} | Ang: {angulo}")
             self.conn.write(comando.encode('utf-8'))
             self.conn.flush()
-            logger.debug(f"Enviado a Arduino: {comando.strip()}")
+            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
         except Exception as e:
-            logger.error(f"Error enviando comando a Arduino: {e}")
+            logger.error(f"[ERROR] Error enviando comando a Arduino: {e}")
 
     def leer_telemetria(self):
         """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
         if not self.conn or not self.conn.is_open:
+            logger.warning("[RX] Arduino no conectado para telemetría")
             return None
 
         try:
             if self.conn.in_waiting > 0:
                 linea = self.conn.readline().decode('utf-8', errors='ignore').strip()
                 if linea:
-                    logger.debug(f"Telemetría Arduino: {linea}")
+                    logger.info(f"[RX] Telemetría Arduino: {linea}")
                     return linea
         except Exception as e:
-            logger.debug(f"Error leyendo telemetría: {e}")
+            logger.error(f"[ERROR] Error leyendo telemetría: {e}")
         return None
 
     def frenar(self):
@@ -218,9 +225,9 @@ class EmergencyLidarRunner:
         if Button is not None:
             try:
                 self.boton = Button(PIN_BOTON_INICIO, pull_up=True)
-                logger.info(f"Botón de inicio configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
+                logger.info(f"Pulsador de retención configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
             except Exception as e:
-                logger.warning(f"No se pudo inicializar botón en GPIO {PIN_BOTON_INICIO}: {e}")
+                logger.warning(f"No se pudo inicializar pulsador de retención en GPIO {PIN_BOTON_INICIO}: {e}")
                 self.boton = None
 
         self.esquinas_completadas = 0

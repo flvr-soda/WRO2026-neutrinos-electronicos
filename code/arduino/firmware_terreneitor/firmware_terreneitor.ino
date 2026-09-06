@@ -1,5 +1,5 @@
 #include <Servo.h>
-#include <Wire.h>
+// #include <Wire.h>  // Comentado: Deshabilitado MPU6050 - El sensor MPU ha sido deshabilitado completamente
 
 // ============================================================
 // DEFINICIÓN DE PINES
@@ -18,8 +18,8 @@ const int PIN_TRIG_TRASERO = 12;
 const int PIN_ECHO_TRASERO = 13;
 
 // Constantes de calibración del giroscopio
-const int GYRO_BIAS_MUESTRAS = 300;
-const float GYRO_DEADBAND_DPS = 1.5f;
+// const int GYRO_BIAS_MUESTRAS = 300;  // Comentado: Deshabilitado MPU6050
+// const float GYRO_DEADBAND_DPS = 1.5f;  // Comentado: Deshabilitado MPU6050
 
 // ============================================================
 // VARIABLES GLOBALES
@@ -30,11 +30,11 @@ String inputString = "";
 bool stringComplete = false;
 
 // Variables de sensores
-float mpu_z_acumulado = 0.0;
+// float mpu_z_acumulado = 0.0;  // Comentado: Deshabilitado MPU6050
 float distancia_trasera_cm = -1.0;
 static unsigned long ultimaMedicionUs = 0;
-const int MPU_ADDR = 0x68;
-static float gyro_z_bias = 0.0f;
+// const int MPU_ADDR = 0x68;  // Comentado: Deshabilitado MPU6050
+// static float gyro_z_bias = 0.0f;  // Comentado: Deshabilitado MPU6050
 static unsigned int ciclo_sensor = 0;
 static float historico_distancias[5] = {-1.0, -1.0, -1.0, -1.0, -1.0};
 static int idx_historico = 0;
@@ -133,7 +133,7 @@ void parsearComando(String comando) {
 
 void enviarTelemetria() {
   Serial.print("T:Z:");
-  Serial.print(mpu_z_acumulado, 1);
+  Serial.print(0.0, 1);  // Valor fijo en lugar de mpu_z_acumulado (MPU deshabilitado)
   Serial.print(";A:");
   Serial.print(anguloActual);
   Serial.print(";U:");
@@ -190,26 +190,27 @@ void initSensores() {
   pinMode(PIN_ECHO_TRASERO, INPUT);
   digitalWrite(PIN_TRIG_TRASERO, LOW);
 
-  Wire.begin();
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x6B);
-  Wire.write(0);
-  Wire.endTransmission(true);
+  // Comentado: Deshabilitado MPU6050
+  // Wire.begin();
+  // Wire.beginTransmission(MPU_ADDR);
+  // Wire.write(0x6B);
+  // Wire.write(0);
+  // Wire.endTransmission(true);
 
-  // Calibración de bias del eje Z
-  long suma_z = 0;
-  for (int i = 0; i < GYRO_BIAS_MUESTRAS; i++) {
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x47);
-    Wire.endTransmission(false);
-    Wire.requestFrom(MPU_ADDR, 2, true);
-    if (Wire.available() == 2) {
-      int16_t raw = Wire.read() << 8 | Wire.read();
-      suma_z += raw;
-    }
-    delay(5);
-  }
-  gyro_z_bias = (float)suma_z / (float)GYRO_BIAS_MUESTRAS / 131.0f;
+  // Comentado: Calibración de bias del eje Z (MPU deshabilitado)
+  // long suma_z = 0;
+  // for (int i = 0; i < GYRO_BIAS_MUESTRAS; i++) {
+  //   Wire.beginTransmission(MPU_ADDR);
+  //   Wire.write(0x47);
+  //   Wire.endTransmission(false);
+  //   Wire.requestFrom(MPU_ADDR, 2, true);
+  //   if (Wire.available() == 2) {
+  //     int16_t raw = Wire.read() << 8 | Wire.read();
+  //     suma_z += raw;
+  //   }
+  //   delay(5);
+  // }
+  // gyro_z_bias = (float)suma_z / (float)GYRO_BIAS_MUESTRAS / 131.0f;
 
   ultimaMedicionUs = micros();
 }
@@ -219,22 +220,21 @@ void actualizarSensores() {
   unsigned long deltaUs = ahoraUs - ultimaMedicionUs;
   if (deltaUs == 0) return;
 
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x47);
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 2, true);
+  // Comentado: Deshabilitado MPU6050
+  // Wire.beginTransmission(MPU_ADDR);
+  // Wire.write(0x47);
+  // Wire.endTransmission(false);
+  // Wire.requestFrom(MPU_ADDR, 2, true);
 
-  if (Wire.available() == 2) {
-    int16_t gyroZ = Wire.read() << 8 | Wire.read();
-    float gyroZ_deg_s = ((float)gyroZ / 131.0f) - gyro_z_bias;
-
-    if (abs(gyroZ_deg_s) < GYRO_DEADBAND_DPS) {
-      gyroZ_deg_s = 0.0f;
-    }
-
-    float deltaSegundos = (float)deltaUs / 1000000.0f;
-    mpu_z_acumulado += gyroZ_deg_s * deltaSegundos;
-  }
+  // if (Wire.available() == 2) {
+  //   int16_t gyroZ = Wire.read() << 8 | Wire.read();
+  //   float gyroZ_deg_s = ((float)gyroZ / 131.0f) - gyro_z_bias;
+  //   if (abs(gyroZ_deg_s) < GYRO_DEADBAND_DPS) {
+  //     gyroZ_deg_s = 0.0f;
+  //   }
+  //   float deltaSegundos = (float)deltaUs / 1000000.0f;
+  //   mpu_z_acumulado += gyroZ_deg_s * deltaSegundos;
+  // }
 
   ultimaMedicionUs = ahoraUs;
 
