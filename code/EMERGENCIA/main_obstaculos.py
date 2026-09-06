@@ -503,11 +503,8 @@ class ObstacleRunner:
             self.arduino.cerrar()
         if self.lidar:
             self.lidar.cerrar()
-        if self.boton:
-            try:
-                self.boton.close()
-            except Exception:
-                pass
+        # No cerrar el botón GPIO si estamos en loop principal para múltiples carreras
+        # Solo cerrarlo cuando realmente termine el programa
         logger.info("Sistema de obstáculos finalizado con éxito.")
 
 
