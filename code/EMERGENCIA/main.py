@@ -139,6 +139,7 @@ class DirectArduino:
         self.baudrate = baudrate
         self.conn = None
         self.port = self._buscar_puerto()
+        self.ultimo_warning_conexion = 0.0  # Para evitar warnings repetitivos
         self.conectar()
 
     def _buscar_puerto(self):
@@ -169,7 +170,11 @@ class DirectArduino:
     def enviar(self, velocidad: int, angulo: int):
         """Envía comando en formato V:<vel>;A:<ang>\n"""
         if not self.conn or not self.conn.is_open:
-            logger.warning("Arduino no conectado, no se puede enviar comando")
+            # Solo mostrar warning cada 5 segundos para no saturar
+            ahora = time.monotonic()
+            if ahora - self.ultimo_warning_conexion > 5.0:
+                logger.warning("Arduino no conectado, no se puede enviar comando")
+                self.ultimo_warning_conexion = ahora
             return
 
         # Clamp de seguridad
@@ -230,6 +235,7 @@ class EmergencyLidarRunner:
         self.tiempo_ultima_esquina = 0.0
         self.ultima_distancia_valida = 300.0
         self.boton_estado_anterior = None  # Para detectar cambios del switch durante carrera
+        self.ultima_distancia_log = 0.0  # Para evitar logs repetitivos
 
     def esperar_inicio(self):
         """
@@ -306,7 +312,6 @@ class EmergencyLidarRunner:
             carrera_detenida = False
             try:
                 counter = 0
-                ultimo_log_estado = 0
                 while self.esquinas_completadas < TOTAL_ESQUINAS:
                     t_inicio_iter = time.monotonic()
                     ahora = time.monotonic()
@@ -347,10 +352,11 @@ class EmergencyLidarRunner:
                             logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
                             self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
                         else:
-                            # Recta normal - log cada 1 segundo (40 iteraciones)
-                            if ahora - ultimo_log_estado >= 1.0:
+                            # Recta normal - log solo cuando hay cambio significativo en distancia (>10cm)
+                            cambio_distancia = abs(dist - self.ultima_distancia_log)
+                            if cambio_distancia > 10.0:
                                 logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
-                                ultimo_log_estado = ahora
+                                self.ultima_distancia_log = dist
                             self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
                     else:
