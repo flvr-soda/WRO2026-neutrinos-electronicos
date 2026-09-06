@@ -298,6 +298,11 @@ class EmergencyLidarRunner:
         # Evita que una pared cercana al arranque dispare un giro falso inmediato
         self.tiempo_ultima_esquina = time.monotonic()
         
+        # Centrar servo antes de iniciar carrera
+        logger.info("Centrando servo de dirección antes de iniciar carrera...")
+        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)  # Velocidad 0, ángulo centrado
+        time.sleep(0.5)  # Esperar a que el servo complete el centrado
+        
         # Enviar comando inicial para arrancar motores
         logger.info("Enviando comando inicial de arranque...")
         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)

@@ -29,8 +29,8 @@ velocidades:
 # Ángulos de dirección del carro compartidos (valores Arduino)
 angulos_direccion:
   recto: 90
-  giro_derecha: 30   # Giro máximo derecha (aumentado de 50 a 30 para más giro)
-  giro_izquierda: 150 # Giro máximo izquierda (aumentado de 130 a 150 para más giro)
+  giro_derecha: 10   # Giro máximo derecha (aumentado a 10 para máximo giro)
+  giro_izquierda: 170 # Giro máximo izquierda (aumentado a 170 para máximo giro)
 
 # Umbrales de distancia LiDAR (en cm)
 lidar:
