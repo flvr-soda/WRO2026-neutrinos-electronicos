@@ -383,7 +383,8 @@ class EmergencyLidarRunner:
                     if t_dormir > 0:
                         time.sleep(t_dormir)
 
-                logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
+                if not carrera_detenida:
+                    logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
 
             except KeyboardInterrupt:
                 logger.info("Interrupción manual por teclado.")

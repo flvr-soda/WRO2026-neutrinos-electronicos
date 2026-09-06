@@ -393,8 +393,11 @@ class DirectLidar:
             try:
                 # gpiozero AngularServo: -90 a +90; convertimos desde 0-180
                 # Rango máximo: 0° (izquierda extrema) a 180° (derecha extrema)
+                # initial_angle=0 en gpiozero = 0° en gpiozero = 90° en sistema usuario (frente)
                 self.servo = AngularServo(PIN_SERVO_LIDAR, min_angle=-90, max_angle=90, initial_angle=0)
-                self.apuntar(ANGULO_FRENTE)
+                # Centrar explícitamente al frente para asegurar posición correcta
+                self.servo.angle = 0  # 0° en gpiozero = 90° en sistema usuario (frente)
+                self.angulo_actual = ANGULO_FRENTE
                 logger.info(f"Servo LiDAR inicializado en GPIO {PIN_SERVO_LIDAR} (rango 0-180°)")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar servo LiDAR: {e}")
@@ -537,6 +540,9 @@ class ObstacleRunner:
         self.color_detector = ColorDetector()
         self.camera_iniciada = False
         self.color_detectado = None  # 'rojo', 'verde', 'morado' o None
+        
+        logger.info(f"Configuración cámara: enabled={CAMARA_ENABLED}, {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
+        logger.info(f"Configuración colores: enabled={COLORES_ENABLED}, colores=rojo,verde,morado")
 
         if Button is not None:
             try:
@@ -772,7 +778,8 @@ class ObstacleRunner:
                     if t_dormir > 0:
                         time.sleep(t_dormir)
 
-                logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
+                if not carrera_detenida:
+                    logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
 
             except KeyboardInterrupt:
                 logger.info("Interrupción manual por teclado.")
@@ -780,8 +787,11 @@ class ObstacleRunner:
             except Exception as e:
                 logger.error(f"Error inesperado en loop de obstáculos: {e}", exc_info=True)
                 carrera_detenida = True
-            finally:
-                self.limpiar()
+            
+            # Frenar motores después de la carrera (completada o detenida)
+            if self.arduino:
+                self.arduino.frenar()
+                time.sleep(0.1)
             
             # Si la carrera fue detenida por el switch, reiniciar contador para nueva carrera
             if carrera_detenida:
@@ -789,7 +799,10 @@ class ObstacleRunner:
                 self.esquinas_completadas = 0
                 self.estado = self.ESTADO_RECTA
                 time.sleep(1.0)  # Pausa breve antes de volver a standby
-                time.sleep(1.0)  # Pausa breve antes de volver a standby
+            else:
+                # Si la carrera se completó normalmente, limpiar y salir del loop
+                self.limpiar()
+                break
 
     def limpiar(self):
         logger.info("Deteniendo robot y cerrando conexiones...")
