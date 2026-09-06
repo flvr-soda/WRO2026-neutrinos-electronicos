@@ -174,7 +174,7 @@ class DirectArduino:
 
         # Clamp de seguridad
         velocidad = max(-100, min(100, int(velocidad)))
-        angulo = max(40, min(140, int(angulo)))
+        angulo = max(10, min(170, int(angulo)))  # Aumentado rango para mayor giro
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
