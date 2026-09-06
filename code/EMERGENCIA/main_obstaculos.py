@@ -226,23 +226,21 @@ class DirectArduino:
 
     def conectar(self):
         if not self.port:
-            logger.warning("[CONECT] No se encontró puerto Arduino automáticamente.")
+            logger.warning("No se encontró puerto Arduino automáticamente.")
             return
 
         try:
-            logger.info(f"[CONECT] Intentando conectar a Arduino en {self.port} a {self.baudrate} baud...")
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             time.sleep(1.8)  # Tiempo de reinicio del bootloader de Arduino
-            logger.info(f"[CONECT] Arduino conectado exitosamente en {self.port}")
-            logger.info(f"[CONECT] Estado conexión: {self.conn.is_open}")
+            logger.info(f"Arduino conectado en {self.port}")
         except Exception as e:
-            logger.error(f"[ERROR] Error conectando a Arduino en {self.port}: {e}")
+            logger.error(f"Error conectando a Arduino en {self.port}: {e}")
             self.conn = None
 
     def enviar(self, velocidad: int, angulo: int):
         """Envía comando en formato V:<vel>;A:<ang>\n"""
         if not self.conn or not self.conn.is_open:
-            logger.warning("[COMANDO] Arduino no conectado, no se puede enviar comando")
+            logger.warning("Arduino no conectado, no se puede enviar comando")
             return
 
         velocidad = max(-100, min(100, int(velocidad)))
@@ -250,12 +248,10 @@ class DirectArduino:
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
-            logger.info(f"[COMANDO] Raw: {repr(comando)} | Vel: {velocidad} | Ang: {angulo}")
             self.conn.write(comando.encode('utf-8'))
             self.conn.flush()
-            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
         except Exception as e:
-            logger.error(f"[ERROR] Error enviando comando a Arduino: {e}")
+            logger.error(f"Error enviando comando a Arduino: {e}")
 
     def frenar(self):
         self.enviar(0, ANGULO_DIRECCION_RECTO)
@@ -353,13 +349,13 @@ class ObstacleRunner:
         if dist_der < 0:
             dist_der = 0.0
 
-        logger.info(f"[BARRIDO] Izq: {dist_izq:.1f} cm | Der: {dist_der:.1f} cm")
+        logger.info(f"[BARRIDO] L:{dist_izq:.0f}cm R:{dist_der:.0f}cm")
 
         if dist_izq >= dist_der:
-            logger.info("[BARRIDO] → Más espacio a la IZQUIERDA")
+            logger.info(f"[ESQUIVA] ← IZQUIERDA ({ANGULO_GIRO_IZQUIERDA}°)")
             return ANGULO_GIRO_IZQUIERDA
         else:
-            logger.info("[BARRIDO] → Más espacio a la DERECHA")
+            logger.info(f"[ESQUIVA] → DERECHA ({ANGULO_GIRO_DERECHA}°)")
             return ANGULO_GIRO_DERECHA
 
     def run(self):
@@ -377,14 +373,17 @@ class ObstacleRunner:
         self.tiempo_ultima_esquina = time.monotonic()
         
         # Centrar servo antes de iniciar carrera
-        logger.info("Centrando servo de dirección antes de iniciar carrera...")
-        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)  # Velocidad 0, ángulo centrado
-        time.sleep(0.5)  # Esperar a que el servo complete el centrado
+        logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
+        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
+        time.sleep(0.5)
 
         try:
+            counter = 0
+            ultimo_log_estado = 0
             while self.esquinas_completadas < TOTAL_ESQUINAS:
                 t_inicio_iter = time.monotonic()
                 ahora = time.monotonic()
+                counter += 1
 
                 # 1. Leer distancia frontal del LiDAR
                 distancia = self.lidar.leer_distancia_cm()
@@ -405,15 +404,12 @@ class ObstacleRunner:
                         self.esquinas_completadas += 1
                         vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
                         esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
-                        logger.info(
-                            f"[ESQUINA] #{self.esquinas_completadas}/{TOTAL_ESQUINAS} "
-                            f"(Vuelta {vueltas + 1}, Esquina {esq_en_vuelta}) | dist: {dist:.1f} cm"
-                        )
+                        logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
                         self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
 
                     # Prioridad 2: Obstáculo (pilar) → barrido y esquiva
                     elif dist <= DIST_OBSTACULO_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                        logger.info(f"[OBSTÁCULO] Detectado a {dist:.1f} cm — haciendo barrido...")
+                        logger.info(f"[OBSTÁCULO] {dist:.0f}cm - Barrido...")
                         angulo_esquiva = self.hacer_barrido_esquiva()
                         self.angulo_esquiva_activo = angulo_esquiva
                         self.estado = self.ESTADO_ESQUIVANDO
@@ -422,6 +418,9 @@ class ObstacleRunner:
 
                     # Prioridad 3: Recta libre
                     else:
+                        if ahora - ultimo_log_estado >= 1.0:
+                            logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
+                            ultimo_log_estado = ahora
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
                 elif self.estado == self.ESTADO_ESQUIVANDO:
@@ -434,7 +433,7 @@ class ObstacleRunner:
 
                     if esquiva_completa:
                         self.estado = self.ESTADO_RECTA
-                        logger.info(f"[FIN ESQUIVA] Despejado ({dist:.1f} cm) en {tiempo_esquivando:.2f}s.")
+                        logger.info(f"[FIN ESQUIVA] {tiempo_esquivando:.1f}s | Recta")
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
                     else:
                         self.arduino.enviar(VELOCIDAD_ESQUIVA, self.angulo_esquiva_activo)
@@ -449,7 +448,7 @@ class ObstacleRunner:
 
                     if giro_completo:
                         self.estado = self.ESTADO_RECTA
-                        logger.info(f"[FIN ESQUINA] Despejado ({dist:.1f} cm) en {tiempo_girando:.2f}s.")
+                        logger.info(f"[FIN GIRO] {tiempo_girando:.1f}s | Recta")
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
                     else:
                         self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)

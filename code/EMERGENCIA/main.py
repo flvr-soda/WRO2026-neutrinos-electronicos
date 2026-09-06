@@ -151,22 +151,19 @@ class DirectArduino:
 
     def conectar(self):
         if not self.port:
-            logger.warning("[CONECT] No se encontró puerto Arduino automáticamente.")
+            logger.warning("No se encontró puerto Arduino automáticamente.")
             return
 
         try:
-            logger.info(f"[CONECT] Intentando conectar a Arduino en {self.port} a {self.baudrate} baud...")
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             time.sleep(1.8)  # Tiempo de reinicio del bootloader de Arduino
-            logger.info(f"[CONECT] Arduino conectado exitosamente en {self.port}")
-            logger.info(f"[CONECT] Estado conexión: {self.conn.is_open}")
+            logger.info(f"Arduino conectado en {self.port}")
 
             # Limpiar buffer de recepción
             self.conn.reset_input_buffer()
             self.conn.reset_output_buffer()
-            logger.info(f"[CONECT] Buffers limpiados")
         except Exception as e:
-            logger.error(f"[ERROR] Error conectando a Arduino en {self.port}: {e}")
+            logger.error(f"Error conectando a Arduino en {self.port}: {e}")
             self.conn = None
 
     def enviar(self, velocidad: int, angulo: int):
@@ -181,27 +178,23 @@ class DirectArduino:
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
-            logger.info(f"[COMANDO] Raw: {repr(comando)} | Vel: {velocidad} | Ang: {angulo}")
             self.conn.write(comando.encode('utf-8'))
             self.conn.flush()
-            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
         except Exception as e:
-            logger.error(f"[ERROR] Error enviando comando a Arduino: {e}")
+            logger.error(f"Error enviando comando a Arduino: {e}")
 
     def leer_telemetria(self):
         """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
         if not self.conn or not self.conn.is_open:
-            logger.warning("[RX] Arduino no conectado para telemetría")
             return None
 
         try:
             if self.conn.in_waiting > 0:
                 linea = self.conn.readline().decode('utf-8', errors='ignore').strip()
                 if linea:
-                    logger.info(f"[RX] Telemetría Arduino: {linea}")
                     return linea
         except Exception as e:
-            logger.error(f"[ERROR] Error leyendo telemetría: {e}")
+            logger.debug(f"Error leyendo telemetría: {e}")
         return None
 
     def frenar(self):
@@ -299,19 +292,20 @@ class EmergencyLidarRunner:
         self.tiempo_ultima_esquina = time.monotonic()
         
         # Centrar servo antes de iniciar carrera
-        logger.info("Centrando servo de dirección antes de iniciar carrera...")
-        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)  # Velocidad 0, ángulo centrado
-        time.sleep(0.5)  # Esperar a que el servo complete el centrado
+        logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
+        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
+        time.sleep(0.5)
         
         # Enviar comando inicial para arrancar motores
-        logger.info("Enviando comando inicial de arranque...")
+        logger.info(f"[ARRANQUE] Vel: {VELOCIDAD_CRUCERO}, Ang: {ANGULO_DIRECCION_RECTO}°")
         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
         try:
             counter = 0
+            ultimo_log_estado = 0
             while self.esquinas_completadas < TOTAL_ESQUINAS:
                 t_inicio_iter = time.monotonic()
-                ahora = time.monotonic()  # Usar reloj monotónico en todo el bucle (inmune a NTP)
+                ahora = time.monotonic()
                 counter += 1
 
                 # Leer telemetría del Arduino para verificar comunicación
@@ -337,15 +331,13 @@ class EmergencyLidarRunner:
                         vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
                         esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
                         
-                        logger.info(
-                            f"[ESQUINA DETECTADA] #{self.esquinas_completadas}/{TOTAL_ESQUINAS} "
-                            f"(Vuelta {vueltas + 1}, Esquina {esq_en_vuelta}) - Distancia: {dist:.1f} cm"
-                        )
+                        logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
                         self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
                     else:
-                        # Recta normal
-                        if counter % 20 == 0:  # Log cada 20 iteraciones
-                            logger.info(f"[RECTA] Distancia: {dist:.1f} cm, Velocidad: {VELOCIDAD_CRUCERO}, Ángulo: {ANGULO_DIRECCION_RECTO}")
+                        # Recta normal - log cada 1 segundo (40 iteraciones)
+                        if ahora - ultimo_log_estado >= 1.0:
+                            logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
+                            ultimo_log_estado = ahora
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
                 else:
@@ -360,7 +352,7 @@ class EmergencyLidarRunner:
 
                     if giro_completado:
                         self.en_giro = False
-                        logger.info(f"[FIN GIRO] Pista despejada ({dist:.1f} cm) en {tiempo_en_giro:.2f}s. Recta.")
+                        logger.info(f"[FIN GIRO] {tiempo_en_giro:.1f}s | Recta")
                         self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
                     else:
                         # Mantener viraje a la derecha
