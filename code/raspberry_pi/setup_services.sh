@@ -245,7 +245,7 @@ config['modo'] = '$mode'
 with open('$EMERGENCY_CONFIG', 'w') as f:
     yaml.dump(config, f, default_flow_style=False)
 
-print(f"Modo cambiado a: {mode}")
+print(f"Modo cambiado a: $mode")
 EOF
     
     print_info "Modo de emergencia configurado correctamente"

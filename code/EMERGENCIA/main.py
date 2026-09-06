@@ -250,10 +250,6 @@ class EmergencyLidarRunner:
                 counter = 0
                 while True:
                     current_state = self.boton.is_pressed
-                    # Log cada 20 iteraciones para no saturar
-                    counter += 1
-                    if counter % 20 == 0:
-                        logger.debug(f"Estado actual del switch: {'ON' if not current_state else 'OFF'}")
                     # Detectar cualquier cambio de estado (toggle)
                     if current_state != switch_state:
                         logger.info(f"¡Switch cambiado de estado! Nuevo estado: {'ON' if not current_state else 'OFF'}. Arrancando en 0.5 segundos...")
@@ -389,8 +385,11 @@ class EmergencyLidarRunner:
             except Exception as e:
                 logger.error(f"Error inesperado en loop de emergencia: {e}", exc_info=True)
                 carrera_detenida = True
-            finally:
-                self.limpiar()
+            
+            # Frenar motores después de la carrera (completada o detenida)
+            if self.arduino:
+                self.arduino.frenar()
+                time.sleep(0.1)
             
             # Si la carrera fue detenida por el switch, reiniciar contador para nueva carrera
             if carrera_detenida:
@@ -398,6 +397,10 @@ class EmergencyLidarRunner:
                 self.esquinas_completadas = 0
                 self.en_giro = False
                 time.sleep(1.0)  # Pausa breve antes de volver a standby
+            else:
+                # Si la carrera se completó normalmente, limpiar y salir del loop
+                self.limpiar()
+                break
 
     def limpiar(self):
         logger.info("Deteniendo robot y cerrando conexiones...")
