@@ -229,6 +229,7 @@ class EmergencyLidarRunner:
         # Inicializado en negativo para que el primer cooldown transcurra desde el arranque
         self.tiempo_ultima_esquina = 0.0
         self.ultima_distancia_valida = 300.0
+        self.boton_estado_anterior = None  # Para detectar cambios del switch durante carrera
 
     def esperar_inicio(self):
         """
@@ -275,103 +276,128 @@ class EmergencyLidarRunner:
                 return False
 
     def run(self):
-        # 1. Modo Standby tras encendido (no avanza hasta pulsar el botón de inicio)
-        if not self.esperar_inicio():
-            self.limpiar()
-            return
+        # Loop principal para permitir múltiples carreras con el mismo switch
+        while True:
+            # 1. Modo Standby tras encendido (no avanza hasta pulsar el botón de inicio)
+            if not self.esperar_inicio():
+                self.limpiar()
+                return
 
-        logger.info("=== INICIANDO NAVEGACIÓN DE EMERGENCIA ===")
-        logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
-        logger.info(f"Umbral de giro frontal: {DISTANCIA_GIRO_CM} cm.")
-        logger.info(f"Velocidad crucero: {VELOCIDAD_CRUCERO}, Ángulo recto: {ANGULO_DIRECCION_RECTO}")
+            logger.info("=== INICIANDO NAVEGACIÓN DE EMERGENCIA ===")
+            logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
+            logger.info(f"Umbral de giro frontal: {DISTANCIA_GIRO_CM} cm.")
+            logger.info(f"Velocidad crucero: {VELOCIDAD_CRUCERO}, Ángulo recto: {ANGULO_DIRECCION_RECTO}")
 
-        periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
+            periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
 
-        # Cooldown inicial: forzar espera del cooldown completo antes de detectar la primera esquina
-        # Evita que una pared cercana al arranque dispare un giro falso inmediato
-        self.tiempo_ultima_esquina = time.monotonic()
-        
-        # Centrar servo antes de iniciar carrera
-        logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
-        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
-        time.sleep(0.5)
-        
-        # Enviar comando inicial para arrancar motores
-        logger.info(f"[ARRANQUE] Vel: {VELOCIDAD_CRUCERO}, Ang: {ANGULO_DIRECCION_RECTO}°")
-        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+            # Cooldown inicial: forzar espera del cooldown completo antes de detectar la primera esquina
+            # Evita que una pared cercana al arranque dispare un giro falso inmediato
+            self.tiempo_ultima_esquina = time.monotonic()
+            
+            # Centrar servo antes de iniciar carrera
+            logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
+            self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
+            time.sleep(0.5)
+            
+            # Inicializar estado del switch para detección durante carrera
+            if self.boton is not None:
+                self.boton_estado_anterior = self.boton.is_pressed
+            
+            # Enviar comando inicial para arrancar motores
+            logger.info(f"[ARRANQUE] Vel: {VELOCIDAD_CRUCERO}, Ang: {ANGULO_DIRECCION_RECTO}°")
+            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
-        try:
-            counter = 0
-            ultimo_log_estado = 0
-            while self.esquinas_completadas < TOTAL_ESQUINAS:
-                t_inicio_iter = time.monotonic()
-                ahora = time.monotonic()
-                counter += 1
+            carrera_detenida = False
+            try:
+                counter = 0
+                ultimo_log_estado = 0
+                while self.esquinas_completadas < TOTAL_ESQUINAS:
+                    t_inicio_iter = time.monotonic()
+                    ahora = time.monotonic()
+                    counter += 1
 
-                # Leer telemetría del Arduino para verificar comunicación
-                self.arduino.leer_telemetria()
+                    # Leer telemetría del Arduino para verificar comunicación
+                    self.arduino.leer_telemetria()
 
-                # 1. Leer distancia frontal del LiDAR
-                distancia = self.lidar.leer_distancia_cm()
-                if distancia > 0:
-                    self.ultima_distancia_valida = distancia
+                    # Verificar cambio del switch de inicio (parada de emergencia)
+                    if self.boton is not None:
+                        boton_estado_actual = self.boton.is_pressed
+                        if boton_estado_actual != self.boton_estado_anterior:
+                            logger.info("[STOP] Switch de inicio cambiado - Deteniendo carrera")
+                            self.boton_estado_anterior = boton_estado_actual
+                            carrera_detenida = True
+                            break  # Salir del loop de carrera
 
-                dist = self.ultima_distancia_valida
+                    # 1. Leer distancia frontal del LiDAR
+                    distancia = self.lidar.leer_distancia_cm()
+                    if distancia > 0:
+                        self.ultima_distancia_valida = distancia
 
-                # 2. Máquina de estados reactiva
-                if not self.en_giro:
-                    # Chequear si llegamos a la esquina frontal
-                    tiempo_desde_ultimo_giro = ahora - self.tiempo_ultima_esquina
-                    if dist <= DISTANCIA_GIRO_CM and tiempo_desde_ultimo_giro >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                        # Iniciar maniobra de giro a la derecha
-                        self.en_giro = True
-                        self.tiempo_inicio_giro = ahora
-                        self.tiempo_ultima_esquina = ahora
-                        self.esquinas_completadas += 1
-                        vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
-                        esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
-                        
-                        logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
-                        self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                    dist = self.ultima_distancia_valida
+
+                    # 2. Máquina de estados reactiva
+                    if not self.en_giro:
+                        # Chequear si llegamos a la esquina frontal
+                        tiempo_desde_ultimo_giro = ahora - self.tiempo_ultima_esquina
+                        if dist <= DISTANCIA_GIRO_CM and tiempo_desde_ultimo_giro >= TIEMPO_COOLDOWN_ESQUINA_SEG:
+                            # Iniciar maniobra de giro a la derecha
+                            self.en_giro = True
+                            self.tiempo_inicio_giro = ahora
+                            self.tiempo_ultima_esquina = ahora
+                            self.esquinas_completadas += 1
+                            vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
+                            esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
+                            
+                            logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
+                            self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                        else:
+                            # Recta normal - log cada 1 segundo (40 iteraciones)
+                            if ahora - ultimo_log_estado >= 1.0:
+                                logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
+                                ultimo_log_estado = ahora
+                            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+
                     else:
-                        # Recta normal - log cada 1 segundo (40 iteraciones)
-                        if ahora - ultimo_log_estado >= 1.0:
-                            logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
-                            ultimo_log_estado = ahora
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        # En proceso de giro
+                        tiempo_en_giro = ahora - self.tiempo_inicio_giro
 
-                else:
-                    # En proceso de giro
-                    tiempo_en_giro = ahora - self.tiempo_inicio_giro
+                        # Salir del giro si ya cumplió el tiempo mínimo Y el frente se despejó, o si superó tiempo máximo
+                        giro_completado = False
+                        if tiempo_en_giro >= DURACION_MIN_GIRO_SEG:
+                            if dist >= DISTANCIA_DESPEJADA_CM or tiempo_en_giro >= DURACION_MAX_GIRO_SEG:
+                                giro_completado = True
 
-                    # Salir del giro si ya cumplió el tiempo mínimo Y el frente se despejó, o si superó tiempo máximo
-                    giro_completado = False
-                    if tiempo_en_giro >= DURACION_MIN_GIRO_SEG:
-                        if dist >= DISTANCIA_DESPEJADA_CM or tiempo_en_giro >= DURACION_MAX_GIRO_SEG:
-                            giro_completado = True
+                        if giro_completado:
+                            self.en_giro = False
+                            logger.info(f"[FIN GIRO] {tiempo_en_giro:.1f}s | Recta")
+                            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        else:
+                            # Mantener viraje a la derecha
+                            self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
 
-                    if giro_completado:
-                        self.en_giro = False
-                        logger.info(f"[FIN GIRO] {tiempo_en_giro:.1f}s | Recta")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
-                    else:
-                        # Mantener viraje a la derecha
-                        self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                    # Control de frecuencia
+                    t_transcurrido = time.monotonic() - t_inicio_iter
+                    t_dormir = periodo_bucle - t_transcurrido
+                    if t_dormir > 0:
+                        time.sleep(t_dormir)
 
-                # Control de frecuencia
-                t_transcurrido = time.monotonic() - t_inicio_iter
-                t_dormir = periodo_bucle - t_transcurrido
-                if t_dormir > 0:
-                    time.sleep(t_dormir)
+                logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
 
-            logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
-
-        except KeyboardInterrupt:
-            logger.info("Interrupción manual por teclado.")
-        except Exception as e:
-            logger.error(f"Error inesperado en loop de emergencia: {e}", exc_info=True)
-        finally:
-            self.limpiar()
+            except KeyboardInterrupt:
+                logger.info("Interrupción manual por teclado.")
+                carrera_detenida = True
+            except Exception as e:
+                logger.error(f"Error inesperado en loop de emergencia: {e}", exc_info=True)
+                carrera_detenida = True
+            finally:
+                self.limpiar()
+            
+            # Si la carrera fue detenida por el switch, reiniciar contador para nueva carrera
+            if carrera_detenida:
+                logger.info("[REINICIO] Carrera detenida por switch - Reiniciando para nueva carrera")
+                self.esquinas_completadas = 0
+                self.en_giro = False
+                time.sleep(1.0)  # Pausa breve antes de volver a standby
 
     def limpiar(self):
         logger.info("Deteniendo robot y cerrando conexiones...")

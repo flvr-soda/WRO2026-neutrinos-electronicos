@@ -289,6 +289,7 @@ class ObstacleRunner:
         self.tiempo_ultima_esquina = 0.0
         self.ultima_distancia_valida = 300.0
         self.angulo_esquiva_activo = ANGULO_DIRECCION_RECTO
+        self.boton_estado_anterior = None  # Para detectar cambios del switch durante carrera
 
     def esperar_inicio(self):
         """
@@ -359,114 +360,140 @@ class ObstacleRunner:
             return ANGULO_GIRO_DERECHA
 
     def run(self):
-        # 1. Standby hasta botón de inicio
-        if not self.esperar_inicio():
-            self.limpiar()
-            return
+        # Loop principal para permitir múltiples carreras con el mismo switch
+        while True:
+            # 1. Standby hasta botón de inicio
+            if not self.esperar_inicio():
+                self.limpiar()
+                return
 
-        logger.info("=== INICIANDO RETO DE OBSTÁCULOS ===")
-        logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
+            logger.info("=== INICIANDO RETO DE OBSTÁCULOS ===")
+            logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
 
-        periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
+            periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
 
-        # Cooldown inicial: evitar giro falso si arranca cerca de una pared
-        self.tiempo_ultima_esquina = time.monotonic()
-        
-        # Centrar servo antes de iniciar carrera
-        logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
-        self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
-        time.sleep(0.5)
+            # Cooldown inicial: evitar giro falso si arranca cerca de una pared
+            self.tiempo_ultima_esquina = time.monotonic()
+            
+            # Centrar servo antes de iniciar carrera
+            logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
+            self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
+            time.sleep(0.5)
+            
+            # Inicializar estado del switch para detección durante carrera
+            if self.boton is not None:
+                self.boton_estado_anterior = self.boton.is_pressed
 
-        try:
-            counter = 0
-            ultimo_log_estado = 0
-            while self.esquinas_completadas < TOTAL_ESQUINAS:
-                t_inicio_iter = time.monotonic()
-                ahora = time.monotonic()
-                counter += 1
+            try:
+                counter = 0
+                ultimo_log_estado = 0
+                carrera_detenida = False
+                while self.esquinas_completadas < TOTAL_ESQUINAS:
+                    t_inicio_iter = time.monotonic()
+                    ahora = time.monotonic()
+                    counter += 1
 
-                # 1. Leer distancia frontal del LiDAR
-                distancia = self.lidar.leer_distancia_cm()
-                if distancia > 0:
-                    self.ultima_distancia_valida = distancia
+                    # 1. Leer distancia frontal del LiDAR
+                    distancia = self.lidar.leer_distancia_cm()
+                    if distancia > 0:
+                        self.ultima_distancia_valida = distancia
 
-                dist = self.ultima_distancia_valida
+                    dist = self.ultima_distancia_valida
 
-                # 2. Máquina de estados de 3 estados
-                if self.estado == self.ESTADO_RECTA:
-                    tiempo_desde_esquina = ahora - self.tiempo_ultima_esquina
+                    # Verificar cambio del switch de inicio (parada de emergencia)
+                    if self.boton is not None:
+                        boton_estado_actual = self.boton.is_pressed
+                        if boton_estado_actual != self.boton_estado_anterior:
+                            logger.info("[STOP] Switch de inicio cambiado - Deteniendo carrera")
+                            self.boton_estado_anterior = boton_estado_actual
+                            carrera_detenida = True
+                            break  # Salir del loop de carrera
 
-                    # Prioridad 1: Pared de contención → giro de esquina
-                    if dist <= DIST_PARED_ESQUINA_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                        self.estado = self.ESTADO_GIRANDO_ESQUINA
-                        self.tiempo_inicio_maniobra = ahora
-                        self.tiempo_ultima_esquina = ahora
-                        self.esquinas_completadas += 1
-                        vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
-                        esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
-                        logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
-                        self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                    # 2. Máquina de estados de 3 estados
+                    if self.estado == self.ESTADO_RECTA:
+                        tiempo_desde_esquina = ahora - self.tiempo_ultima_esquina
 
-                    # Prioridad 2: Obstáculo (pilar) → barrido y esquiva
-                    elif dist <= DIST_OBSTACULO_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                        logger.info(f"[OBSTÁCULO] {dist:.0f}cm - Barrido...")
-                        angulo_esquiva = self.hacer_barrido_esquiva()
-                        self.angulo_esquiva_activo = angulo_esquiva
-                        self.estado = self.ESTADO_ESQUIVANDO
-                        self.tiempo_inicio_maniobra = ahora
-                        self.arduino.enviar(VELOCIDAD_ESQUIVA, angulo_esquiva)
+                        # Prioridad 1: Pared de contención → giro de esquina
+                        if dist <= DIST_PARED_ESQUINA_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
+                            self.estado = self.ESTADO_GIRANDO_ESQUINA
+                            self.tiempo_inicio_maniobra = ahora
+                            self.tiempo_ultima_esquina = ahora
+                            self.esquinas_completadas += 1
+                            vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
+                            esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
+                            logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {dist:.0f}cm")
+                            self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
 
-                    # Prioridad 3: Recta libre
-                    else:
-                        if ahora - ultimo_log_estado >= 1.0:
-                            logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
-                            ultimo_log_estado = ahora
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        # Prioridad 2: Obstáculo (pilar) → barrido y esquiva
+                        elif dist <= DIST_OBSTACULO_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
+                            logger.info(f"[OBSTÁCULO] {dist:.0f}cm - Barrido...")
+                            angulo_esquiva = self.hacer_barrido_esquiva()
+                            self.angulo_esquiva_activo = angulo_esquiva
+                            self.estado = self.ESTADO_ESQUIVANDO
+                            self.tiempo_inicio_maniobra = ahora
+                            self.arduino.enviar(VELOCIDAD_ESQUIVA, angulo_esquiva)
 
-                elif self.estado == self.ESTADO_ESQUIVANDO:
-                    tiempo_esquivando = ahora - self.tiempo_inicio_maniobra
+                        # Prioridad 3: Recta libre
+                        else:
+                            if ahora - ultimo_log_estado >= 1.0:
+                                logger.info(f"[RECTA] {dist:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
+                                ultimo_log_estado = ahora
+                            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
 
-                    esquiva_completa = False
-                    if tiempo_esquivando >= DURACION_MIN_ESQUIVA_SEG:
-                        if dist >= DIST_LIBRE_CM or tiempo_esquivando >= DURACION_ESQUIVA_SEG:
-                            esquiva_completa = True
+                    elif self.estado == self.ESTADO_ESQUIVANDO:
+                        tiempo_esquivando = ahora - self.tiempo_inicio_maniobra
 
-                    if esquiva_completa:
-                        self.estado = self.ESTADO_RECTA
-                        logger.info(f"[FIN ESQUIVA] {tiempo_esquivando:.1f}s | Recta")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
-                    else:
-                        self.arduino.enviar(VELOCIDAD_ESQUIVA, self.angulo_esquiva_activo)
+                        esquiva_completa = False
+                        if tiempo_esquivando >= DURACION_MIN_ESQUIVA_SEG:
+                            if dist >= DIST_LIBRE_CM or tiempo_esquivando >= DURACION_ESQUIVA_SEG:
+                                esquiva_completa = True
 
-                elif self.estado == self.ESTADO_GIRANDO_ESQUINA:
-                    tiempo_girando = ahora - self.tiempo_inicio_maniobra
+                        if esquiva_completa:
+                            self.estado = self.ESTADO_RECTA
+                            logger.info(f"[FIN ESQUIVA] {tiempo_esquivando:.1f}s | Recta")
+                            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        else:
+                            self.arduino.enviar(VELOCIDAD_ESQUIVA, self.angulo_esquiva_activo)
 
-                    giro_completo = False
-                    if tiempo_girando >= DURACION_MIN_GIRO_ESQUINA_SEG:
-                        if dist >= DIST_LIBRE_CM or tiempo_girando >= DURACION_MAX_GIRO_ESQUINA_SEG:
-                            giro_completo = True
+                    elif self.estado == self.ESTADO_GIRANDO_ESQUINA:
+                        tiempo_girando = ahora - self.tiempo_inicio_maniobra
 
-                    if giro_completo:
-                        self.estado = self.ESTADO_RECTA
-                        logger.info(f"[FIN GIRO] {tiempo_girando:.1f}s | Recta")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
-                    else:
-                        self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                        giro_completo = False
+                        if tiempo_girando >= DURACION_MIN_GIRO_ESQUINA_SEG:
+                            if dist >= DIST_LIBRE_CM or tiempo_girando >= DURACION_MAX_GIRO_ESQUINA_SEG:
+                                giro_completo = True
 
-                # Control de frecuencia del bucle
-                t_transcurrido = time.monotonic() - t_inicio_iter
-                t_dormir = periodo_bucle - t_transcurrido
-                if t_dormir > 0:
-                    time.sleep(t_dormir)
+                        if giro_completo:
+                            self.estado = self.ESTADO_RECTA
+                            logger.info(f"[FIN GIRO] {tiempo_girando:.1f}s | Recta")
+                            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        else:
+                            self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
 
-            logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
+                    # Control de frecuencia del bucle
+                    t_transcurrido = time.monotonic() - t_inicio_iter
+                    t_dormir = periodo_bucle - t_transcurrido
+                    if t_dormir > 0:
+                        time.sleep(t_dormir)
 
-        except KeyboardInterrupt:
-            logger.info("Interrupción manual por teclado.")
-        except Exception as e:
-            logger.error(f"Error inesperado en loop de obstáculos: {e}", exc_info=True)
-        finally:
-            self.limpiar()
+                logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
+
+            except KeyboardInterrupt:
+                logger.info("Interrupción manual por teclado.")
+                carrera_detenida = True
+            except Exception as e:
+                logger.error(f"Error inesperado en loop de obstáculos: {e}", exc_info=True)
+                carrera_detenida = True
+            finally:
+                self.limpiar()
+            
+            # Si la carrera fue detenida por el switch, reiniciar contador para nueva carrera
+            if carrera_detenida:
+                logger.info("[REINICIO] Carrera detenida por switch - Reiniciando para nueva carrera")
+                self.esquinas_completadas = 0
+                self.estado = self.ESTADO_RECTA
+                time.sleep(1.0)  # Pausa breve antes de volver a standby
+                time.sleep(1.0)  # Pausa breve antes de volver a standby
 
     def limpiar(self):
         logger.info("Deteniendo robot y cerrando conexiones...")
