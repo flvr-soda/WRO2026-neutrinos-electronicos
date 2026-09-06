@@ -1,7 +1,7 @@
 
 #!/usr/bin/env python3
 """
-SISTEMA DE EMERGENCIA WRO - Reto de Obstáculos (LiDAR + Servo)
+SISTEMA DE EMERGENCIA WRO - Reto de Obstáculos (LiDAR + Servo + Cámara)
 Objetivo: Completar 3 vueltas (12 esquinas) esquivando obstáculos en el trayecto.
 
 Protocolo WRO:
@@ -10,14 +10,18 @@ Protocolo WRO:
 3. Carrera:
    - Avanza en recta. LiDAR apunta al frente (90°).
    - Si detecta obstáculo frontal cercano (<= DIST_OBSTACULO_CM):
+       Detecta color del pilar con cámara CSI (rojo, verde, morado).
        Hace mini barrido: mide a izquierda (0°) y derecha (180°) - rango máximo del servo.
-       Esquiva por el lado con mayor espacio libre.
+       Esquiva por el lado según regla de colores:
+         * Rojo/Morado: esquivar por izquierda
+         * Verde: esquivar por derecha
+       Si no detecta color, esquiva por el lado con mayor espacio libre.
    - Si detecta pared de contención (<= DIST_PARED_ESQUINA_CM):
        Gira a la derecha y cuenta la esquina.
 4. Finalización: Completa 12 esquinas (3 vueltas), frena y se detiene.
 
-NOTA: Sin cámara, no se detecta color del pilar. El algoritmo esquiva
-      por el lado con más espacio, lo cual puede no cumplir la regla de colores.
+NOTA: Con cámara se detecta color del pilar para cumplimiento de regla WRO.
+      Sin cámara, el algoritmo esquiva por el lado con más espacio (fallback).
 
 CONFIGURACIÓN: Todos los parámetros se cargan desde config.yaml en el mismo directorio.
 """
@@ -29,6 +33,19 @@ import serial
 import logging
 import yaml
 import os
+import threading
+from collections import deque
+from dataclasses import dataclass
+from typing import Optional
+
+try:
+    import cv2
+    import numpy as np
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+    cv2 = None
+    np = None
 
 try:
     from gpiozero import Button, AngularServo
@@ -109,6 +126,246 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 logger = logging.getLogger("EMERGENCIA_OBSTACULOS")
+
+# Configuración de cámara
+CAMARA_ENABLED = config.get('camara', {}).get('enabled', False)
+CAMARA_WIDTH = config.get('camara', {}).get('width', 640)
+CAMARA_HEIGHT = config.get('camara', {}).get('height', 480)
+CAMARA_FPS = config.get('camara', {}).get('fps', 30)
+CAMARA_BUFFER_SIZE = config.get('camara', {}).get('buffer_size', 2)
+
+# Configuración de detección de colores
+COLORES_ENABLED = config.get('colores', {}).get('enabled', False)
+REGION_INTERES = config.get('colores', {}).get('region_interes', {'x1': 160, 'y1': 120, 'x2': 480, 'y2': 360})
+AREA_MINIMA = config.get('colores', {}).get('area_minima', 500)
+CONFIANZA_MINIMA = config.get('colores', {}).get('confianza_minima', 0.3)
+
+# Rangos HSV para colores
+COLOR_ROJO = config.get('colores', {}).get('rojo', {'h_min': 0, 'h_max': 10, 's_min': 100, 's_max': 255, 'v_min': 50, 'v_max': 255})
+COLOR_VERDE = config.get('colores', {}).get('verde', {'h_min': 40, 'h_max': 80, 's_min': 50, 's_max': 255, 'v_min': 50, 'v_max': 255})
+COLOR_MORADO = config.get('colores', {}).get('morado', {'h_min': 130, 'h_max': 160, 's_min': 50, 's_max': 255, 'v_min': 50, 'v_max': 255})
+
+
+@dataclass
+class StampedFrame:
+    """Frame con timestamp para sincronización"""
+    data: np.ndarray
+    timestamp: float
+    sequence: int
+
+
+class CameraStream:
+    """Streaming de cámara CSI con thread separado y buffer limitado.
+    
+    Diseñado según mejores prácticas de percepción robótica:
+    - Captura en thread dedicado a la tasa del sensor
+    - Procesamiento nunca bloquea la captura
+    - Siempre usa el frame más reciente (drop frames antiguos para tiempo real)
+    - Timestamp en captura, no en procesamiento
+    """
+    
+    def __init__(self, buffer_size=CAMARA_BUFFER_SIZE, name="camera"):
+        self.name = name
+        self._buffer = deque(maxlen=buffer_size)
+        self._lock = threading.Lock()
+        self._new_frame = threading.Event()
+        self._running = False
+        self._thread = None
+        self._sequence = 0
+        self._camera = None
+        
+        # Diagnósticos
+        self._capture_times = deque(maxlen=100)
+        self._drop_count = 0
+        
+    def start(self):
+        """Iniciar thread de captura"""
+        if not OPENCV_AVAILABLE:
+            logger.warning("OpenCV no disponible - cámara deshabilitada")
+            return False
+            
+        if not CAMARA_ENABLED:
+            logger.info("Cámara deshabilitada en configuración")
+            return False
+            
+        try:
+            # Intentar abrir cámara CSI (Raspberry Pi Camera Module)
+            self._camera = cv2.VideoCapture(0)
+            if not self._camera.isOpened():
+                logger.error("No se pudo abrir la cámara")
+                return False
+                
+            self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMARA_WIDTH)
+            self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMARA_HEIGHT)
+            self._camera.set(cv2.CAP_PROP_FPS, CAMARA_FPS)
+            
+            self._running = True
+            self._thread = threading.Thread(
+                target=self._capture_loop, daemon=True, name=f"{self.name}_capture")
+            self._thread.start()
+            
+            logger.info(f"Cámara CSI iniciada: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error al iniciar cámara: {e}")
+            return False
+    
+    def stop(self):
+        """Detener thread de captura"""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+        if self._camera:
+            self._camera.release()
+    
+    def _capture_loop(self):
+        """Loop de captura en thread separado"""
+        while self._running:
+            t_start = time.monotonic()
+            
+            try:
+                ret, frame = self._camera.read()
+                if not ret or frame is None:
+                    time.sleep(0.01)
+                    continue
+                    
+                timestamp = time.monotonic()
+                
+                stamped_frame = StampedFrame(
+                    data=frame,
+                    timestamp=timestamp,
+                    sequence=self._sequence
+                )
+                self._sequence += 1
+                
+                with self._lock:
+                    if len(self._buffer) == self._buffer.maxlen:
+                        self._drop_count += 1
+                    self._buffer.append(stamped_frame)
+                
+                self._new_frame.set()
+                self._capture_times.append(time.monotonic() - t_start)
+                
+            except Exception as e:
+                logger.debug(f"[{self.name}] Error de captura: {e}")
+                time.sleep(0.01)
+    
+    def get_latest(self) -> Optional[StampedFrame]:
+        """Obtener frame más reciente (no bloqueante). Retorna None si está vacío."""
+        with self._lock:
+            if self._buffer:
+                return self._buffer[-1]
+        return None
+    
+    def get_diagnostics(self) -> dict:
+        """Métricas de salud del streaming"""
+        if self._capture_times:
+            times = list(self._capture_times)
+            fps = 1.0 / np.mean(times) if np.mean(times) > 0 else 0
+        else:
+            fps = 0
+        return {
+            "sensor": self.name,
+            "fps": round(fps, 1),
+            "frames_captured": self._sequence,
+            "frames_dropped": self._drop_count,
+            "buffer_size": len(self._buffer),
+            "avg_capture_ms": round(np.mean(times) * 1000, 1) if self._capture_times else 0,
+        }
+
+
+class ColorDetector:
+    """Detector de colores (rojo, verde, morado) para pilar WRO.
+    
+    Usa espacio de color HSV para detección robusta ante variaciones de iluminación.
+    """
+    
+    def __init__(self):
+        self.enabled = COLORES_ENABLED and OPENCV_AVAILABLE
+        self.roi = REGION_INTERES
+        self.area_min = AREA_MINIMA
+        self.conf_min = CONFIANZA_MINIMA
+        
+        # Definir rangos HSV para cada color
+        self.rangos = {
+            'rojo': (
+                np.array([COLOR_ROJO['h_min'], COLOR_ROJO['s_min'], COLOR_ROJO['v_min']]),
+                np.array([COLOR_ROJO['h_max'], COLOR_ROJO['s_max'], COLOR_ROJO['v_max']])
+            ),
+            'verde': (
+                np.array([COLOR_VERDE['h_min'], COLOR_VERDE['s_min'], COLOR_VERDE['v_min']]),
+                np.array([COLOR_VERDE['h_max'], COLOR_VERDE['s_max'], COLOR_VERDE['v_max']])
+            ),
+            'morado': (
+                np.array([COLOR_MORADO['h_min'], COLOR_MORADO['s_min'], COLOR_MORADO['v_min']]),
+                np.array([COLOR_MORADO['h_max'], COLOR_MORADO['s_max'], COLOR_MORADO['v_max']])
+            )
+        }
+        
+        # Para el rojo también agregamos el rango alto (170-180)
+        self.rangos_rojo_extendido = (
+            np.array([170, COLOR_ROJO['s_min'], COLOR_ROJO['v_min']]),
+            np.array([180, COLOR_ROJO['s_max'], COLOR_ROJO['v_max']])
+        )
+        
+        if not self.enabled:
+            logger.warning("Detector de colores deshabilitado (configuración o OpenCV no disponible)")
+        else:
+            logger.info("Detector de colores inicializado: rojo, verde, morado")
+    
+    def detectar(self, frame: np.ndarray) -> Optional[str]:
+        """Detectar el color predominante en la región de interés.
+        
+        Retorna: 'rojo', 'verde', 'morado' o None si no se detecta ningún color
+        """
+        if not self.enabled or frame is None:
+            return None
+            
+        try:
+            # Extraer región de interés
+            h, w = frame.shape[:2]
+            x1 = max(0, min(w, self.roi['x1']))
+            y1 = max(0, min(h, self.roi['y1']))
+            x2 = max(0, min(w, self.roi['x2']))
+            y2 = max(0, min(h, self.roi['y2']))
+            
+            roi = frame[y1:y2, x1:x2]
+            if roi.size == 0:
+                return None
+            
+            # Convertir a HSV
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            
+            # Detectar cada color
+            mejor_color = None
+            mejor_confianza = 0
+            
+            for nombre, (rango_bajo, rango_alto) in self.rangos.items():
+                # Crear máscara
+                mask = cv2.inRange(hsv, rango_bajo, rango_alto)
+                
+                # Para el rojo, también verificar el rango extendido
+                if nombre == 'rojo':
+                    mask_extendida = cv2.inRange(hsv, self.rangos_rojo_extendido[0], self.rangos_rojo_extendido[1])
+                    mask = cv2.bitwise_or(mask, mask_extendida)
+                
+                # Calcular área y confianza
+                area = cv2.countNonZero(mask)
+                total_pixels = roi.shape[0] * roi.shape[1]
+                confianza = area / total_pixels if total_pixels > 0 else 0
+                
+                # Filtrar por área mínima
+                if area >= self.area_min and confianza >= self.conf_min:
+                    if confianza > mejor_confianza:
+                        mejor_confianza = confianza
+                        mejor_color = nombre
+            
+            return mejor_color
+            
+        except Exception as e:
+            logger.debug(f"Error en detección de color: {e}")
+            return None
 
 
 # DRIVER SERIAL TF-LUNA LIDAR DIRECTO (con servo)
@@ -274,6 +531,12 @@ class ObstacleRunner:
         self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.boton = None
+        
+        # Inicializar cámara y detector de colores
+        self.camera = CameraStream()
+        self.color_detector = ColorDetector()
+        self.camera_iniciada = False
+        self.color_detectado = None  # 'rojo', 'verde', 'morado' o None
 
         if Button is not None:
             try:
@@ -352,11 +615,27 @@ class ObstacleRunner:
 
         logger.info(f"[BARRIDO] L:{dist_izq:.0f}cm R:{dist_der:.0f}cm")
 
+        # Decidir dirección basada en color detectado si está disponible
+        if self.color_detectado:
+            if self.color_detectado == 'rojo':
+                # Rojo: esquivar por izquierda
+                logger.info(f"[ESQUIVA] ← IZQUIERDA (ROJO) ({ANGULO_GIRO_IZQUIERDA}°)")
+                return ANGULO_GIRO_IZQUIERDA
+            elif self.color_detectado == 'verde':
+                # Verde: esquivar por derecha
+                logger.info(f"[ESQUIVA] → DERECHA (VERDE) ({ANGULO_GIRO_DERECHA}°)")
+                return ANGULO_GIRO_DERECHA
+            elif self.color_detectado == 'morado':
+                # Morado: esquivar por izquierda
+                logger.info(f"[ESQUIVA] ← IZQUIERDA (MORADO) ({ANGULO_GIRO_IZQUIERDA}°)")
+                return ANGULO_GIRO_IZQUIERDA
+        
+        # Fallback: usar distancia si no hay color detectado
         if dist_izq >= dist_der:
-            logger.info(f"[ESQUIVA] ← IZQUIERDA ({ANGULO_GIRO_IZQUIERDA}°)")
+            logger.info(f"[ESQUIVA] ← IZQUIERDA (distancia) ({ANGULO_GIRO_IZQUIERDA}°)")
             return ANGULO_GIRO_IZQUIERDA
         else:
-            logger.info(f"[ESQUIVA] → DERECHA ({ANGULO_GIRO_DERECHA}°)")
+            logger.info(f"[ESQUIVA] → DERECHA (distancia) ({ANGULO_GIRO_DERECHA}°)")
             return ANGULO_GIRO_DERECHA
 
     def run(self):
@@ -383,6 +662,12 @@ class ObstacleRunner:
             # Inicializar estado del switch para detección durante carrera
             if self.boton is not None:
                 self.boton_estado_anterior = self.boton.is_pressed
+            
+            # Iniciar cámara si está configurada
+            if not self.camera_iniciada:
+                self.camera_iniciada = self.camera.start()
+                if self.camera_iniciada:
+                    logger.info("Cámara iniciada para detección de colores")
 
             try:
                 counter = 0
@@ -399,6 +684,17 @@ class ObstacleRunner:
                         self.ultima_distancia_valida = distancia
 
                     dist = self.ultima_distancia_valida
+                    
+                    # 1.5. Detectar color del pilar si hay cámara disponible
+                    if self.camera_iniciada and counter % 5 == 0:  # Detectar cada 5 ciclos (~0.125s)
+                        frame = self.camera.get_latest()
+                        if frame:
+                            color = self.color_detector.detectar(frame.data)
+                            if color and color != self.color_detectado:
+                                self.color_detectado = color
+                                logger.info(f"[COLOR] Detectado: {color.upper()}")
+                            elif not color:
+                                self.color_detectado = None
 
                     # Verificar cambio del switch de inicio (parada de emergencia)
                     if self.boton is not None:
@@ -503,6 +799,8 @@ class ObstacleRunner:
             self.arduino.cerrar()
         if self.lidar:
             self.lidar.cerrar()
+        if self.camera:
+            self.camera.stop()
         # No cerrar el botón GPIO si estamos en loop principal para múltiples carreras
         # Solo cerrarlo cuando realmente termine el programa
         logger.info("Sistema de obstáculos finalizado con éxito.")

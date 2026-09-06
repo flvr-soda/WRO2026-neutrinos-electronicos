@@ -52,3 +52,47 @@ servo_lidar:
   angulo_izquierda: 0   # LiDAR mirando a la izquierda (máximo rango)
   angulo_derecha: 180   # LiDAR mirando a la derecha (máximo rango)
   ms_por_grado: 5       # ~5 ms/grado para barrido rápido
+
+# Configuración de cámara CSI (para main_obstaculos.py)
+camara:
+  enabled: true                    # Habilitar/deshabilitar cámara
+  width: 640                       # Resolución horizontal
+  height: 480                      # Resolución vertical
+  fps: 30                          # Frames por segundo objetivo
+  buffer_size: 2                   # Tamaño del buffer de frames (mantiene los más recientes)
+
+# Configuración de detección de colores (para main_obstaculos.py)
+colores:
+  enabled: true                    # Habilitar/deshabilitar detección de colores
+  region_interes:                  # Región de interés [x1, y1, x2, y2] (centro de la imagen)
+    x1: 160
+    y1: 120
+    x2: 480
+    y2: 360
+  area_minima: 500                 # Área mínima en píxeles para considerar detección válida
+  confianza_minima: 0.3             # Proporción mínima de píxeles del color en la región
+  
+  # Rangos HSV para detección de colores (H: 0-180, S: 0-255, V: 0-255)
+  rojo:
+    h_min: 0
+    h_max: 10
+    s_min: 100
+    s_max: 255
+    v_min: 50
+    v_max: 255
+  
+  verde:
+    h_min: 40
+    h_max: 80
+    s_min: 50
+    s_max: 255
+    v_min: 50
+    v_max: 255
+  
+  morado:
+    h_min: 130
+    h_max: 160
+    s_min: 50
+    s_max: 255
+    v_min: 50
+    v_max: 255

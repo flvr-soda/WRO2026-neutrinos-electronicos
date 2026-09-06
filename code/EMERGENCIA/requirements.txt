@@ -1,3 +1,5 @@
 gpiozero>=1.6.2
 pyserial>=3.5
 pyyaml>=6.0
+opencv-python>=4.5.0
+numpy>=1.19.0
