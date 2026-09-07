@@ -1,5 +1,5 @@
 #include <Servo.h>
-// #include <Wire.h>  // Comentado: Deshabilitado MPU6050 - El sensor MPU ha sido deshabilitado completamente
+#include <Wire.h>
 
 // ============================================================
 // DEFINICIÓN DE PINES
@@ -18,8 +18,8 @@ const int PIN_TRIG_TRASERO = 12;
 const int PIN_ECHO_TRASERO = 13;
 
 // Constantes de calibración del giroscopio
-// const int GYRO_BIAS_MUESTRAS = 300;  // Comentado: Deshabilitado MPU6050
-// const float GYRO_DEADBAND_DPS = 1.5f;  // Comentado: Deshabilitado MPU6050
+const int GYRO_BIAS_MUESTRAS = 100;  // Reducido para no bloquear mucho tiempo
+const float GYRO_DEADBAND_DPS = 1.5f;
 
 // ============================================================
 // VARIABLES GLOBALES
@@ -30,11 +30,11 @@ String inputString = "";
 bool stringComplete = false;
 
 // Variables de sensores
-// float mpu_z_acumulado = 0.0;  // Comentado: Deshabilitado MPU6050
+float mpu_z_acumulado = 0.0;
 float distancia_trasera_cm = -1.0;
 static unsigned long ultimaMedicionUs = 0;
-// const int MPU_ADDR = 0x68;  // Comentado: Deshabilitado MPU6050
-// static float gyro_z_bias = 0.0f;  // Comentado: Deshabilitado MPU6050
+const int MPU_ADDR = 0x68;
+static float gyro_z_bias = 0.0f;
 static unsigned int ciclo_sensor = 0;
 static float historico_distancias[5] = {-1.0, -1.0, -1.0, -1.0, -1.0};
 static int idx_historico = 0;
@@ -133,7 +133,7 @@ void parsearComando(String comando) {
 
 void enviarTelemetria() {
   Serial.print("T:Z:");
-  Serial.print(0.0, 1);  // Valor fijo en lugar de mpu_z_acumulado (MPU deshabilitado)
+  Serial.print(mpu_z_acumulado, 1);
   Serial.print(";A:");
   Serial.print(anguloActual);
   Serial.print(";U:");
@@ -161,7 +161,7 @@ void initMotores() {
 }
 
 void aplicarComandos() {
-  int anguloSeguro = constrain(anguloActual, 0, 180);
+  int anguloSeguro = constrain(anguloActual, 0, 270);
   servoDireccion.write(anguloSeguro);
   
   if (velocidadActual == 0) {
@@ -190,27 +190,33 @@ void initSensores() {
   pinMode(PIN_ECHO_TRASERO, INPUT);
   digitalWrite(PIN_TRIG_TRASERO, LOW);
 
-  // Comentado: Deshabilitado MPU6050
-  // Wire.begin();
-  // Wire.beginTransmission(MPU_ADDR);
-  // Wire.write(0x6B);
-  // Wire.write(0);
-  // Wire.endTransmission(true);
+  // Inicializar MPU6050 con timeout
+  Wire.begin();
+  Wire.setWireTimeout(1000, true);  // Timeout de 1ms
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);
+  Wire.write(0);
+  Wire.endTransmission(true);
 
-  // Comentado: Calibración de bias del eje Z (MPU deshabilitado)
-  // long suma_z = 0;
-  // for (int i = 0; i < GYRO_BIAS_MUESTRAS; i++) {
-  //   Wire.beginTransmission(MPU_ADDR);
-  //   Wire.write(0x47);
-  //   Wire.endTransmission(false);
-  //   Wire.requestFrom(MPU_ADDR, 2, true);
-  //   if (Wire.available() == 2) {
-  //     int16_t raw = Wire.read() << 8 | Wire.read();
-  //     suma_z += raw;
-  //   }
-  //   delay(5);
-  // }
-  // gyro_z_bias = (float)suma_z / (float)GYRO_BIAS_MUESTRAS / 131.0f;
+  // Calibración de bias del eje Z (optimizada para no bloquear)
+  long suma_z = 0;
+  int muestras_validas = 0;
+  for (int i = 0; i < GYRO_BIAS_MUESTRAS; i++) {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x47);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 2, true);
+    if (Wire.available() == 2) {
+      int16_t raw = Wire.read() << 8 | Wire.read();
+      suma_z += raw;
+      muestras_validas++;
+    }
+    delay(2);  // Reducido de 5ms a 2ms
+  }
+  if (muestras_validas > 0) {
+    gyro_z_bias = (float)suma_z / (float)muestras_validas / 131.0f;
+  }
 
   ultimaMedicionUs = micros();
 }
@@ -220,26 +226,30 @@ void actualizarSensores() {
   unsigned long deltaUs = ahoraUs - ultimaMedicionUs;
   if (deltaUs == 0) return;
 
-  // Comentado: Deshabilitado MPU6050
-  // Wire.beginTransmission(MPU_ADDR);
-  // Wire.write(0x47);
-  // Wire.endTransmission(false);
-  // Wire.requestFrom(MPU_ADDR, 2, true);
+  // Lectura MPU6050 cada 5 ciclos (para no bloquear)
+  ciclo_sensor++;
+  bool leer_mpu = (ciclo_sensor % 5 == 0);
+  
+  if (leer_mpu) {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x47);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 2, true);
 
-  // if (Wire.available() == 2) {
-  //   int16_t gyroZ = Wire.read() << 8 | Wire.read();
-  //   float gyroZ_deg_s = ((float)gyroZ / 131.0f) - gyro_z_bias;
-  //   if (abs(gyroZ_deg_s) < GYRO_DEADBAND_DPS) {
-  //     gyroZ_deg_s = 0.0f;
-  //   }
-  //   float deltaSegundos = (float)deltaUs / 1000000.0f;
-  //   mpu_z_acumulado += gyroZ_deg_s * deltaSegundos;
-  // }
+    if (Wire.available() == 2) {
+      int16_t gyroZ = Wire.read() << 8 | Wire.read();
+      float gyroZ_deg_s = ((float)gyroZ / 131.0f) - gyro_z_bias;
+      if (abs(gyroZ_deg_s) < GYRO_DEADBAND_DPS) {
+        gyroZ_deg_s = 0.0f;
+      }
+      float deltaSegundos = (float)deltaUs / 1000000.0f;
+      mpu_z_acumulado += gyroZ_deg_s * deltaSegundos;
+    }
+  }
 
   ultimaMedicionUs = ahoraUs;
 
   // Lectura HC-SR04 cada 5 ciclos
-  ciclo_sensor++;
   if (ciclo_sensor >= 5) {
     ciclo_sensor = 0;
     digitalWrite(PIN_TRIG_TRASERO, HIGH);
