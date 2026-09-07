@@ -71,8 +71,8 @@ VELOCIDAD_ESQUIVA = 30
 
 # Ángulos del servo de dirección del carro (valores Arduino)
 ANGULO_DIRECCION_RECTO = 90
-ANGULO_GIRO_DERECHA = 10
-ANGULO_GIRO_IZQUIERDA = 170
+ANGULO_GIRO_DERECHA = 0
+ANGULO_GIRO_IZQUIERDA = 180
 
 # Sentido de giro de la pista
 SENTIDO_GIRO = "derecha"  # "derecha" para horario, "izquierda" para antihorario
@@ -444,7 +444,7 @@ class DirectArduino:
             return
 
         velocidad = max(-100, min(100, int(velocidad)))
-        angulo = max(10, min(170, int(angulo)))
+        angulo = max(0, min(180, int(angulo)))
 
         comando = f"V:{velocidad};A:{angulo}\n"
         try:
