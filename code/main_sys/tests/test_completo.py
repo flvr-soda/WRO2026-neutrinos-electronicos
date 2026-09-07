@@ -9,7 +9,7 @@ import os
 import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.comms_arduino import ArduinoComms
+from src.comms import ArduinoComms
 from src.hardware import get_servo, get_camera
 
 def test_ultrasonico(arduino):

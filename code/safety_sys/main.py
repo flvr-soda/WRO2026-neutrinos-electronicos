@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SISTEMA DE EMERGENCIA WRO - Modo Dinámico Unidireccional
+SISTEMA ALTERNATIVO WRO - Modo Dinámico Unidireccional
 Objetivo: Completar 3 vueltas (12 esquinas) al circuito en el menor tiempo posible.
 
 Comportamiento dinámico:
@@ -126,7 +126,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
-logger = logging.getLogger("EMERGENCIA_UNIFICADO")
+logger = logging.getLogger("SAFETY_SYSTEM")
 
 # ==============================================================================
 # CLASES DE CÁMARA Y DETECCIÓN DE COLORES
@@ -479,9 +479,9 @@ class DirectArduino:
 # PROGRAMA PRINCIPAL DE NAVEGACIÓN UNIFICADA
 # ==============================================================================
 
-class EmergencyRunner:
+class SafetyRunner:
     def __init__(self):
-        logger.info("Inicializando componentes del Sistema de Emergencia Unificado...")
+        logger.info("Inicializando componentes del Sistema Alternativo...")
         self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.camera = CameraStream()
@@ -684,7 +684,7 @@ class EmergencyRunner:
                 self.limpiar()
                 return
 
-            logger.info("=== INICIANDO NAVEGACIÓN DE EMERGENCIA (MODO DINÁMICO) ===")
+            logger.info("=== INICIANDO NAVEGACIÓN ALTERNATIVA (MODO DINÁMICO) ===")
             logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
             logger.info(f"Modo inicial: {self.modo_actual}")
             logger.info(f"Umbral de giro frontal: {DISTANCIA_GIRO_CM} cm.")
@@ -782,7 +782,7 @@ class EmergencyRunner:
                 logger.info("Interrupción manual por teclado.")
                 carrera_detenida = True
             except Exception as e:
-                logger.error(f"Error inesperado en loop de emergencia: {e}", exc_info=True)
+                logger.error(f"Error inesperado en loop de navegación: {e}", exc_info=True)
                 carrera_detenida = True
             
             # Frenar motores después de la carrera
@@ -814,11 +814,11 @@ class EmergencyRunner:
             self.lidar.cerrar()
         if self.camera:
             self.camera.stop()
-        logger.info("Sistema de emergencia unificado finalizado con éxito.")
+        logger.info("Sistema alternativo finalizado con éxito.")
 
 
 def main():
-    runner = EmergencyRunner()
+    runner = SafetyRunner()
     runner.run()
 
 

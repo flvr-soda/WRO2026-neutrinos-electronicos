@@ -18,11 +18,15 @@ def _deteccion_vacia(cx=0):
 
 
 class VisionProcessor:
-    def __init__(self, config_loader):
-        self.config = config_loader
+    def __init__(self, get_hsv_rojo, get_hsv_verde, get_hsv_magenta, get_vision):
         # Configuración de visión
-        self.min_area = self.config.get_vision().get("min_area", 500)
+        self.min_area = get_vision().get("min_area", 500)
         self.target_fps = 30  # Coincidir con framerate típico de cámara
+        
+        # Funciones para obtener configuración de colores
+        self.get_hsv_rojo = get_hsv_rojo
+        self.get_hsv_verde = get_hsv_verde
+        self.get_hsv_magenta = get_hsv_magenta
 
         # Variables para procesamiento asíncrono
         self.lock = threading.Lock()
@@ -33,7 +37,7 @@ class VisionProcessor:
         self.frame_counter = 0
 
         # Odometría visual (Flujo Óptico)
-        vision_config = self.config.get_vision()
+        vision_config = get_vision()
         self.factor_px_cm = vision_config.get("factor_px_cm", 0.5)  # Calibración: 1 px = X cm
         self._velocidad_lock = threading.Lock()
         self._velocidad_cm_s = 0.0
@@ -161,19 +165,19 @@ class VisionProcessor:
         centro_frame_x = ancho // 2
 
         # Configuración HSV rojo
-        hsv_rojo = self.config.get_hsv_rojo()
+        hsv_rojo = self.get_hsv_rojo()
         lower_rojo1 = np.array(hsv_rojo.get('lower', [0, 120, 70]))
         upper_rojo1 = np.array(hsv_rojo.get('upper', [10, 255, 255]))
         lower_rojo2 = np.array(hsv_rojo.get('lower2', [170, 120, 70]))
         upper_rojo2 = np.array(hsv_rojo.get('upper2', [180, 255, 255]))
 
         # Configuración HSV verde
-        hsv_verde = self.config.get_hsv_verde()
+        hsv_verde = self.get_hsv_verde()
         lower_verde = np.array(hsv_verde.get('lower', [40, 40, 40]))
         upper_verde = np.array(hsv_verde.get('upper', [80, 255, 255]))
 
         # Configuración HSV magenta (cajón de estacionamiento)
-        hsv_magenta = self.config.get_hsv_magenta()
+        hsv_magenta = self.get_hsv_magenta()
         lower_magenta = np.array(hsv_magenta.get('lower', [140, 50, 50]))
         upper_magenta = np.array(hsv_magenta.get('upper', [170, 255, 255]))
 

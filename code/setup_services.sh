@@ -7,20 +7,20 @@ set -e  # Detener script si hay algún error
 
 # Rutas del proyecto
 PROJECT_DIR="/home/pi/WRO2026-neutrinos-electronicos"
-RASPBERRY_PI_DIR="$PROJECT_DIR/code/raspberry_pi"
-EMERGENCY_DIR="$PROJECT_DIR/code/EMERGENCIA"
+CODE_DIR="$PROJECT_DIR/code"
+MAIN_SYS_DIR="$CODE_DIR/main_sys"
+SAFETY_SYS_DIR="$CODE_DIR/safety_sys"
 
 # Archivos de servicio
-ROBOT_SERVICE="$RASPBERRY_PI_DIR/wro-robot.service"
-EMERGENCY_SERVICE="$EMERGENCY_DIR/wro-emergency.service"
+ROBOT_SERVICE="$MAIN_SYS_DIR/wro-robot.service"
+SAFETY_SERVICE="$SAFETY_SYS_DIR/wro-safety.service"
 
 # Scripts de inicio
-ROBOT_SCRIPT="$RASPBERRY_PI_DIR/start_robot.sh"
-EMERGENCY_SCRIPT="$EMERGENCY_DIR/start_emergency.sh"
+ROBOT_SCRIPT="$MAIN_SYS_DIR/start_robot.sh"
+SAFETY_SCRIPT="$SAFETY_SYS_DIR/start_safety.sh"
 
-# Requisitos
-ROBOT_REQUIREMENTS="$RASPBERRY_PI_DIR/requirements.txt"
-EMERGENCY_REQUIREMENTS="$EMERGENCY_DIR/requirements.txt"
+# Requisitos compartidos
+REQUIREMENTS="$CODE_DIR/requirements.txt"
 
 # Nota: Ya no se usa config.yaml - el modo se detecta dinámicamente
 
@@ -51,19 +51,19 @@ check_raspberry_pi() {
     fi
 }
 
-# Crear entorno virtual e instalar dependencias
+# Crear entorno virtual compartido e instalar dependencias
 setup_virtualenv() {
     local target_dir=$1
     local requirements_file=$2
     local env_name=$3
     
-    print_info "Configurando entorno virtual para $env_name..."
+    print_info "Configurando entorno virtual compartido para $env_name..."
     
     # Verificar si ya existe el entorno virtual
     if [ -d "$target_dir/env" ]; then
         print_warn "El entorno virtual ya existe en $target_dir/env. Omitiendo creación."
     else
-        print_info "Creando entorno virtual en $target_dir/env"
+        print_info "Creando entorno virtual compartido en $target_dir/env"
         cd "$target_dir"
         python3 -m venv env --system-site-packages
     fi
@@ -82,17 +82,14 @@ setup_virtualenv() {
     deactivate
 }
 
-# Configurar ambos entornos virtuales
+# Configurar entorno virtual compartido
 setup_all_virtualenvs() {
-    print_info "=== Configurando entornos virtuales ==="
+    print_info "=== Configurando entorno virtual compartido ==="
     
-    # Configurar entorno para raspberry_pi
-    setup_virtualenv "$RASPBERRY_PI_DIR" "$ROBOT_REQUIREMENTS" "sistema principal"
+    # Configurar entorno compartido en code/
+    setup_virtualenv "$CODE_DIR" "$REQUIREMENTS" "sistemas principal y alternativo"
     
-    # Configurar entorno para EMERGENCIA
-    setup_virtualenv "$EMERGENCY_DIR" "$EMERGENCY_REQUIREMENTS" "sistema de emergencia"
-    
-    print_info "=== Entornos virtuales configurados ==="
+    print_info "=== Entorno virtual compartido configurado ==="
 }
 
 # Dar permisos de ejecución a los scripts
@@ -106,11 +103,11 @@ setup_permissions() {
         print_warn "No se encontró $ROBOT_SCRIPT"
     fi
     
-    if [ -f "$EMERGENCY_SCRIPT" ]; then
-        chmod +x "$EMERGENCY_SCRIPT"
-        print_info "Permisos dados a $EMERGENCY_SCRIPT"
+    if [ -f "$SAFETY_SCRIPT" ]; then
+        chmod +x "$SAFETY_SCRIPT"
+        print_info "Permisos dados a $SAFETY_SCRIPT"
     else
-        print_warn "No se encontró $EMERGENCY_SCRIPT"
+        print_warn "No se encontró $SAFETY_SCRIPT"
     fi
 }
 
@@ -166,16 +163,16 @@ switch_service() {
     
     if [ "$target_service" = "robot" ]; then
         print_info "Cambiando a servicio principal (wro-robot.service)..."
-        disable_service "wro-emergency.service"
+        disable_service "wro-safety.service"
         install_service "wro-robot.service" "$ROBOT_SERVICE"
         enable_service "wro-robot.service"
-    elif [ "$target_service" = "emergency" ]; then
-        print_info "Cambiando a servicio de emergencia (wro-emergency.service)..."
+    elif [ "$target_service" = "safety" ]; then
+        print_info "Cambiando a servicio alternativo (wro-safety.service)..."
         disable_service "wro-robot.service"
-        install_service "wro-emergency.service" "$EMERGENCY_SERVICE"
-        enable_service "wro-emergency.service"
+        install_service "wro-safety.service" "$SAFETY_SERVICE"
+        enable_service "wro-safety.service"
     else
-        print_error "Servicio no válido. Use 'robot' o 'emergency'"
+        print_error "Servicio no válido. Use 'robot' o 'safety'"
         exit 1
     fi
 }
@@ -206,15 +203,15 @@ install_robot_service() {
     print_info "=== Servicio principal instalado correctamente ==="
 }
 
-# Instalación completa del servicio de emergencia
-install_emergency_service() {
-    print_info "=== Instalación completa del servicio de emergencia ==="
+# Instalación completa del servicio alternativo
+install_safety_service() {
+    print_info "=== Instalación completa del servicio alternativo ==="
     print_info "Nota: El modo se detecta dinámicamente (abierto/obstáculos) por cámara"
     setup_all_virtualenvs
     setup_permissions
-    install_service "wro-emergency.service" "$EMERGENCY_SERVICE"
-    enable_service "wro-emergency.service"
-    print_info "=== Servicio de emergencia instalado correctamente ==="
+    install_service "wro-safety.service" "$SAFETY_SERVICE"
+    enable_service "wro-safety.service"
+    print_info "=== Servicio alternativo instalado correctamente ==="
 }
 
 # Mostrar ayuda
@@ -224,22 +221,22 @@ show_help() {
     echo "Comandos:"
     echo "  setup              - Configurar entorno virtual, permisos y dependencias"
     echo "  install-robot      - Instalar y habilitar servicio principal (wro-robot.service)"
-    echo "  install-emergency  - Instalar y habilitar servicio de emergencia (wro-emergency.service)"
+    echo "  install-safety     - Instalar y habilitar servicio alternativo (wro-safety.service)"
     echo "  switch-robot       - Cambiar a servicio principal"
-    echo "  switch-emergency   - Cambiar a servicio de emergencia"
-    echo "  status [servicio]  - Ver estado del servicio (robot o emergency)"
-    echo "  logs [servicio]    - Ver logs del servicio (robot o emergency)"
+    echo "  switch-safety      - Cambiar a servicio alternativo"
+    echo "  status [servicio]  - Ver estado del servicio (robot o safety)"
+    echo "  logs [servicio]    - Ver logs del servicio (robot o safety)"
     echo "  help               - Mostrar esta ayuda"
     echo ""
-    echo "Nota: El modo de emergencia se detecta dinámicamente por cámara"
+    echo "Nota: El modo alternativo se detecta dinámicamente por cámara"
     echo "      (abierto si no detecta colores, obstáculos si detecta colores)"
     echo ""
     echo "Ejemplos:"
     echo "  $0 setup"
     echo "  $0 install-robot"
-    echo "  $0 switch-emergency"
+    echo "  $0 switch-safety"
     echo "  $0 status robot"
-    echo "  $0 logs emergency"
+    echo "  $0 logs safety"
 }
 
 # Función principal
@@ -254,25 +251,25 @@ main() {
         install-robot)
             install_robot_service
             ;;
-        install-emergency)
-            install_emergency_service
+        install-safety)
+            install_safety_service
             ;;
         switch-robot)
             switch_service "robot"
             ;;
-        switch-emergency)
-            switch_service "emergency"
+        switch-safety)
+            switch_service "safety"
             ;;
         status)
             case "${2:-}" in
                 robot)
                     check_status "wro-robot.service"
                     ;;
-                emergency)
-                    check_status "wro-emergency.service"
+                safety)
+                    check_status "wro-safety.service"
                     ;;
                 *)
-                    print_error "Especifique 'robot' o 'emergency'"
+                    print_error "Especifique 'robot' o 'safety'"
                     show_help
                     exit 1
                     ;;
@@ -283,11 +280,11 @@ main() {
                 robot)
                     show_logs "wro-robot.service"
                     ;;
-                emergency)
-                    show_logs "wro-emergency.service"
+                safety)
+                    show_logs "wro-safety.service"
                     ;;
                 *)
-                    print_error "Especifique 'robot' o 'emergency'"
+                    print_error "Especifique 'robot' o 'safety'"
                     show_help
                     exit 1
                     ;;

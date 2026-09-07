@@ -36,9 +36,9 @@
 **Key Design Principles:**
 - **Hybrid Centralized Architecture:** Single Raspberry Pi 4 as master node with Arduino UNO as dedicated hardware controller to eliminate latency issues.
 - **Isolated Control Loop:** PID-based motor control with encoder feedback running directly on the Arduino for immediate, smooth velocity regulation.
-- **Configuration-Driven Logic:** Main competition parameters decoupled from source code via centralized `config.yaml` for rapid pit adjustments without recompilation.
+- **Configuration-Driven Logic:** Main competition parameters decoupled from source code via centralized `config.py` for rapid adjustments.
 - **Modular Software Design:** Event-based Finite State Machine (FSM) on Raspberry Pi enabling independent development and validation of each race phase.
-- **Dual-Track Reliability:** Complete primary vision-based navigation system alongside a lightweight, reactive **Emergency LiDAR fallback system** (`code/EMERGENCIA`).
+- **Dual-Track Reliability:** Complete primary vision-based navigation system alongside a lightweight, reactive **Safety System** (`code/safety_sys`).
 
 ---
 
@@ -134,7 +134,6 @@ The robot employs a dual-processor architecture optimized for high-level percept
 - `opencv-python`: Real-time color detection, ROI extraction, and morphological filtering.
 - `pyserial`: Direct non-blocking serial communication between Pi and Arduino.
 - `gpiozero`: Hardware interface for physical start button (WRO Rule 9.11) and servos.
-- `pyyaml`: Configuration file validation and loading (`config.yaml`).
 - `numpy`: Numerical processing for vision masks and arrays.
 
 ### Flowcharts
@@ -156,49 +155,57 @@ WRO2026-neutrinos-electronicos/
 ├── .gitignore                        # Git exclusion rules
 │
 ├── code/                             # Source code directory
-│   ├── arduino/                      # Arduino C++ Firmware
-│   │   └── firmware_terreneitor/
-│   │       └── firmware_terreneitor.ino   # Monolithic firmware (motors, sensors, comms, config)
+│   ├── env/                          # Shared Python virtual environment
+│   ├── requirements.txt               # Shared Python package dependencies
+│   ├── setup_services.sh              # Systemd service installation script
 │   │
-│   ├── raspberry_pi/                  # Primary Navigation System
-│   │   ├── main.py                      # Main entrypoint and FSM orchestrator
-│   │   ├── config.yaml                  # Calibration and competition parameters
-│   │   ├── requirements.txt             # Python package dependencies
-│   │   ├── start_robot.sh               # Execution wrapper script
-│   │   ├── wro-robot.service            # Systemd service unit for competition auto-start
-│   │   ├── INSTALL_SERVICE.md           # Systemd installation guide
-│   │   ├── src/                         # Core modules
-│   │   │   ├── config_loader.py         # YAML validator and loader
-│   │   │   ├── comms_arduino.py         # Asynchronous thread-safe Arduino serial driver
-│   │   │   ├── vision.py                # Asynchronous HSV color detection
-│   │   │   ├── lidar.py                 # TF-Luna serial driver and servo controller
-│   │   │   ├── pid.py                   # Python PID controller
-│   │   │   └── hardware/                # Hardware abstraction interfaces (GPIO, Servo, Camera)
-│   │   ├── estados/                     # Finite State Machine states
-│   │   │   ├── fsm.py                   # State machine engine
-│   │   │   ├── estado_inicio.py         # WRO Standby and Start Button logic
-│   │   │   ├── estado_navegacion.py     # Active track navigation & lap counter
-│   │   │   ├── estado_estacionar.py     # Automatic 4-phase parking maneuver
-│   │   │   └── estado_fin.py            # Race completion and safety shutdown
-│   │   └── tests/                       # Standalone diagnostic tests
-│   │       ├── test_camara.py           # Camera headless & GUI diagnostic
-│   │       ├── test_lidar.py            # LiDAR & servo angle test
-│   │       ├── test_ultrasonico.py      # Ultrasonic reading test
-│   │       └── test_completo.py         # Full sensor integration test
+│   ├── main_sys/                      # Primary Navigation System
+│   │   ├── src/                        # Core modules
+│   │   │   ├── main.py                 # Main entrypoint and FSM orchestrator
+│   │   │   ├── config.py               # Direct configuration (no YAML)
+│   │   │   ├── estados.py              # Consolidated FSM + states
+│   │   │   ├── comms.py                # Arduino + LiDAR serial drivers
+│   │   │   ├── vision.py               # Asynchronous HSV color detection
+│   │   │   ├── hardware.py            # Hardware interfaces for testing
+│   │   │   └── config.py               # PID controller + configuration
+│   │   ├── tests/                      # Standalone diagnostic tests
+│   │   │   ├── test_camara.py          # Camera headless & GUI diagnostic
+│   │   │   ├── test_lidar.py           # LiDAR & servo angle test
+│   │   │   ├── test_ultrasonico.py      # Ultrasonic reading test
+│   │   │   └── test_completo.py       # Full sensor integration test
+│   │   ├── start_robot.sh              # Execution wrapper script
+│   │   └── wro-robot.service           # Systemd service unit for competition auto-start
 │   │
-│   └── EMERGENCIA/                    # Standalone Emergency Navigation (LiDAR Direct)
-│       ├── main.py                      # Open Challenge: Fixed LiDAR reactive racer
-│       ├── main_obstaculos.py           # Obstacle Challenge: Sweep LiDAR evasion racer
-│       ├── start.sh                     # Emergency interactive runner
-│       ├── start_emergency.sh           # Service wrapper
-│       ├── wro-emergency.service        # Emergency systemd service file
-│       └── README.md                    # Emergency system guide
+│   ├── safety_sys/                     # Alternative Navigation System
+│   │   ├── main.py                     # Dynamic mode reactive racer
+│   │   ├── start_safety.sh            # Service wrapper
+│   │   └── wro-safety.service         # Alternative systemd service file
+│   │
+│   └── arduino/                        # Arduino C++ Firmware
+│       └── firmware_terreneitor.ino   # Monolithic firmware (motors, sensors, comms)
 │
 ├── elec/                             # Electrical schematics and diagrams
 ├── mech/                             # 3D models and CAD files
 ├── photos/                           # Team and vehicle photographic documentation
 └── videos/                           # Practice run videos
 ```
+
+---
+
+## Configuration
+
+The system uses direct Python configuration in `main_sys/src/config.py` instead of YAML files. All competition parameters can be adjusted directly in the code:
+
+- **Velocities:** Motor PWM values and target speeds for PID control
+- **Servo Angles:** Steering angles for different navigation states
+- **HSV Color Ranges:** Detection thresholds for red, green, and magenta
+- **Competition Settings:** Lap limits, time limits, and challenge modes
+- **Hardware Configuration:** GPIO pins and serial port settings
+- **Vision Parameters:** Camera resolution and optical flow calibration
+- **LiDAR Settings:** Servo angles and distance thresholds
+- **Vehicle Dimensions:** Physical dimensions for parking calculations
+
+The Safety System uses hardcoded constants in `safety_sys/main.py` for simplicity and reliability.
 
 ---
 
@@ -233,25 +240,22 @@ The primary software on the Raspberry Pi uses an event-driven Finite State Machi
 
 ---
 
-## Emergency Navigation System
+## Safety System
 
-Located in [`code/EMERGENCIA/`](code/EMERGENCIA), this system is a single-file, zero-overhead reactive fallback designed to guarantee full completion of 3 laps under high-stress competition conditions without relying on camera lighting calibration, OpenCV, or YAML files.
+Located in [`code/safety_sys/`](code/safety_sys), this system is a single-file, zero-overhead reactive alternative designed to guarantee full completion of 3 laps under high-stress competition conditions without relying on camera lighting calibration, OpenCV, or configuration files.
 
-### Available Emergency Programs:
+### Safety System Features:
 
-1. **[`main.py`](code/EMERGENCIA/main.py) — Open Challenge (Fast Reactive Racer):**
-   - Uses direct serial UART reads from the **TF-Luna LiDAR in a fixed forward position ($90^\circ$)** at 40 Hz.
-   - Cruises in straight lines (`V:65, A:90`).
-   - Upon detecting the outer containment wall ($\le 75\text{ cm}$), initiates a sharp right turn (`V:45, A:50`), increments the corner counter with anti-bounce cooldown, and returns to straight cruise once the track clears ($\ge 110\text{ cm}$).
-   - Automatically halts after exactly 12 corners (3 laps).
+**[`main.py`](code/safety_sys/main.py) — Dynamic Mode Reactive Racer:**
+- Uses direct serial UART reads from the **TF-Luna LiDAR in a fixed forward position ($90^\circ$)** at 40 Hz.
+- Cruises in straight lines (`V:65, A:90`).
+- Camera always active for color detection (rojo/verde/morado)
+- Upon detecting any color, permanently switches to obstacle avoidance mode
+- When frontal obstacle is detected ($\le 50\text{ cm}$), performs reactive evasion
+- Detects outer track corners ($\le 75\text{ cm}$) and completes 3 laps reliably.
+- Automatically halts after exactly 12 corners (3 laps).
 
-2. **[`main_obstaculos.py`](code/EMERGENCIA/main_obstaculos.py) — Obstacle Challenge (Sweep Evasion):**
-   - Retains the LiDAR servo on `GPIO 18`.
-   - When a frontal obstacle is detected ($\le 50\text{ cm}$), performs an ultra-fast 2-point sweep ($60^\circ$ left / $120^\circ$ right in $\sim 200\text{ ms}$).
-   - Immediately turns steering toward the side with greater free clearance.
-   - Detects outer track corners ($\le 75\text{ cm}$) and completes 3 laps reliably.
-
-Both scripts strictly follow the **WRO 9.11 Standby $\rightarrow$ Start Button** protocol.
+The script strictly follows the **WRO 9.11 Standby $\rightarrow$ Start Button** protocol.
 
 ---
 
@@ -263,18 +267,25 @@ Both scripts strictly follow the **WRO 9.11 Standby $\rightarrow$ Start Button**
    ```bash
    cd /home/pi
    git clone https://github.com/flvr-soda/WRO2026-neutrinos-electronicos.git
-   cd WRO2026-neutrinos-electronicos/code/raspberry_pi
+   cd WRO2026-neutrinos-electronicos/code
    ```
 
-2. **Create Python virtual environment & install dependencies:**
+2. **Create shared Python virtual environment & install dependencies:**
    ```bash
    python3 -m venv env
    source env/bin/activate
    pip install -r requirements.txt
    ```
 
-3. **Install Arduino Firmware:**
-   - Open `code/arduino/firmware_terreneitor/firmware_terreneitor.ino` in Arduino IDE.
+3. **Install systemd services (automated):**
+   ```bash
+   ./setup_services.sh setup           # Configure environment and permissions
+   ./setup_services.sh install-robot  # Install primary system service
+   ./setup_services.sh install-safety # Install alternative system service
+   ```
+
+4. **Install Arduino Firmware:**
+   - Open `code/arduino/firmware_terreneitor.ino` in Arduino IDE.
    - Select Board `Arduino Uno` and target serial port.
    - Compile and upload.
 
@@ -286,39 +297,54 @@ Both scripts strictly follow the **WRO 9.11 Standby $\rightarrow$ Start Button**
 
 **Primary System:**
 ```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
+cd /home/pi/WRO2026-neutrinos-electronicos/code
 source env/bin/activate
+cd main_sys
+python3 src/main.py
+```
+
+**Safety System:**
+```bash
+cd /home/pi/WRO2026-neutrinos-electronicos/code
+source env/bin/activate
+cd safety_sys
 python3 main.py
 ```
 
-**Emergency System (Open Challenge):**
+### Systemd Service Management
+
+The `setup_services.sh` script provides automated service management:
+
 ```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-python3 main.py
+# Setup environment and permissions
+./setup_services.sh setup
+
+# Install and enable primary system
+./setup_services.sh install-robot
+
+# Switch to safety system
+./setup_services.sh switch-safety
+
+# Check service status
+./setup_services.sh status robot    # or safety
+
+# View service logs
+./setup_services.sh logs robot      # or safety
 ```
 
-**Emergency System (Obstacle Challenge):**
-```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-python3 main_obstaculos.py
-```
-
-### Systemd Auto-Start Service (Headless Competition Mode)
-
-To enable automatic execution upon powering on the robot:
-
+**Manual Service Management:**
 ```bash
 # Enable primary system:
-sudo cp code/raspberry_pi/wro-robot.service /etc/systemd/system/
-sudo systemctl daemon-reload
 sudo systemctl enable wro-robot.service
 sudo systemctl start wro-robot.service
 
-# Or enable emergency system:
-sudo cp code/EMERGENCIA/wro-emergency.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable wro-emergency.service
-sudo systemctl start wro-emergency.service
+# Enable safety system:
+sudo systemctl enable wro-safety.service
+sudo systemctl start wro-safety.service
+
+# Check status:
+sudo systemctl status wro-robot.service
+sudo systemctl status wro-safety.service
 ```
 
 ---
@@ -328,7 +354,7 @@ sudo systemctl start wro-emergency.service
 | Category | Component | Model / Specs | Purpose |
 |:---|:---|:---|:---|
 | **Processing** | Single Board Computer | Raspberry Pi 4 Model B (4GB) | Vision, FSM, Navigation, Decision Making |
-| **Processing** | Microcontroller | Arduino UNO R3 | Real-time Motor Control, Encoder ISR, Telemetry |
+| **Processing** | Microcontroller | Arduino UNO R3 | Real-time Motor Control, Telemetry |
 | **Vision** | Camera Module | OV5647 5MP (120° FOV) | Pillar Color & Position Detection |
 | **Distance** | LiDAR Sensor | Benewake TF-Luna (ToF UART) | Corner Detection, Wall Ranging & Parking |
 | **Distance** | Ultrasonic Sensor | HC-SR04 | Rear Obstacle Measurement |

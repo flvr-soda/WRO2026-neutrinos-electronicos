@@ -3,10 +3,12 @@ import logging
 import sys
 
 # Importar configuraciones y utilidades de hardware
-from src.config_loader import ConfigLoader
-from src.comms_arduino import ArduinoComms
+from src.config import (
+    get_velocidades, get_angulos_servo, get_lidar, get_vision, get_competicion,
+    get_vehiculo, get_hardware, get_serial_ports, get_hsv_rojo, get_hsv_verde, get_hsv_magenta
+)
+from src.comms import ArduinoComms, TFLunaLidar
 from src.vision import VisionProcessor
-from src.lidar import TFLunaLidar
 
 # Importar picamera2 para cámara CSI
 from picamera2 import Picamera2
@@ -19,27 +21,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 def main():
     logging.info("Iniciando Sistema Terreneitor WRO 2026 MVP (FSM Modular)")
     
-    # 1. Cargar configuración
-    config_loader = ConfigLoader("config.yaml")
-    if not config_loader.config:
-        logging.critical("No se pudo cargar la configuración. Saliendo...")
-        sys.exit(1)
-        
-    velocidades = config_loader.get_velocidades()
-    angulos = config_loader.get_angulos_servo()
+    # 1. Cargar configuración directamente
+    velocidades = get_velocidades()
+    angulos = get_angulos_servo()
     
     # 2. Inicializar hardware y componentes
     arduino = ArduinoComms(baudrate=115200)
-    vision = VisionProcessor(config_loader)
+    vision = VisionProcessor(get_hsv_rojo, get_hsv_verde, get_hsv_magenta, get_vision)
 
     # Obtener configuración del LiDAR
-    lidar_config = config_loader.get_lidar()
+    lidar_config = get_lidar()
     pin_servo = lidar_config.get("pin_servo", 18)
-    lidar_port = "/dev/serial0"  # Puerto fijo para LiDAR
+    serial_ports = get_serial_ports()
+    lidar_port = serial_ports.get("lidar", "/dev/serial0")
     lidar = TFLunaLidar(port=lidar_port, baudrate=115200, pin_servo=pin_servo)
 
     # Inicializar cámara CSI con picamera2
-    vision_config = config_loader.get_vision()
+    vision_config = get_vision()
     picam2 = Picamera2()
     config = picam2.create_video_configuration(
         main={
@@ -53,7 +51,7 @@ def main():
 
     # 3. Construir el contexto global para la FSM
     contexto = {
-        "config_loader": config_loader,
+        "config_loader": None,  # Ya no usamos ConfigLoader
         "velocidades": velocidades,
         "angulos": angulos,
         "arduino": arduino,

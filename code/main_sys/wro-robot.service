@@ -1,12 +1,12 @@
 [Unit]
-Description=WRO Robot - Sistema de Emergencia
+Description=WRO Robot - Sistema de Navegación Autónoma
 After=network.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA
-ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/EMERGENCIA/start_emergency.sh
+WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code/main_sys
+ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/main_sys/start_robot.sh
 Restart=always
 RestartSec=10
 
@@ -16,7 +16,7 @@ Environment="LD_LIBRARY_PATH=/opt/vc/lib"
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=wro-emergency
+SyslogIdentifier=wro-robot
 
 # Seguridad
 SupplementaryGroups=video
