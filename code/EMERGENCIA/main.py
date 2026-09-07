@@ -35,13 +35,6 @@ except ImportError:
     np = None
 
 try:
-    from picamera2 import Picamera2
-    PICAMERA2_AVAILABLE = True
-except ImportError:
-    PICAMERA2_AVAILABLE = False
-    Picamera2 = None
-
-try:
     import cv2
     OPENCV_AVAILABLE = True
 except ImportError:
@@ -170,8 +163,8 @@ class CameraStream:
             logger.warning("numpy no disponible - cámara deshabilitada")
             return False
             
-        if not PICAMERA2_AVAILABLE:
-            logger.warning("picamera2 no disponible - cámara deshabilitada")
+        if not OPENCV_AVAILABLE:
+            logger.warning("OpenCV no disponible - cámara deshabilitada")
             return False
             
         if not CAMARA_ENABLED:
@@ -179,29 +172,26 @@ class CameraStream:
             return False
             
         try:
-            # Inicializar Picamera2 para cámara CSI OV5647
-            self._camera = Picamera2()
-            
-            # Configurar la cámara sin preview (headless)
-            config = self._camera.create_preview_configuration(
-                main={"size": (CAMARA_WIDTH, CAMARA_HEIGHT), "format": "RGB888"},
-                controls={"FrameRate": CAMARA_FPS}
-            )
-            self._camera.configure(config)
-            
-            # Iniciar captura sin preview (headless)
-            self._camera.start()
+            # Backend V4L2 para cámaras CSI (OV5647) en headless
+            self._camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
+            if not self._camera.isOpened():
+                logger.error("No se pudo abrir la cámara")
+                return False
+                
+            self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMARA_WIDTH)
+            self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMARA_HEIGHT)
+            self._camera.set(cv2.CAP_PROP_FPS, CAMARA_FPS)
             
             self._running = True
             self._thread = threading.Thread(
                 target=self._capture_loop, daemon=True, name=f"{self.name}_capture")
             self._thread.start()
             
-            logger.info(f"Cámara CSI iniciada con picamera2 (headless): {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
+            logger.info(f"Cámara CSI iniciada con OpenCV V4L2: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
             return True
             
         except Exception as e:
-            logger.error(f"Error al iniciar cámara con picamera2: {e}")
+            logger.error(f"Error al iniciar cámara con OpenCV: {e}")
             return False
     
     def stop(self):
@@ -210,8 +200,7 @@ class CameraStream:
         if self._thread:
             self._thread.join(timeout=2.0)
         if self._camera:
-            self._camera.stop()
-            self._camera.close()
+            self._camera.release()
     
     def _capture_loop(self):
         """Loop de captura en thread separado"""
@@ -222,10 +211,8 @@ class CameraStream:
             t_start = time.monotonic()
             
             try:
-                # Capturar frame con picamera2
-                frame = self._camera.capture_array()
-                
-                if frame is None or frame.size == 0:
+                ret, frame = self._camera.read()
+                if not ret or frame is None:
                     fallos_consecutivos += 1
                     
                     # Log solo cuando cambia el estado de funcionando a fallando
