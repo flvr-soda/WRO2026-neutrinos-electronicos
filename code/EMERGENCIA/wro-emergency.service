@@ -19,6 +19,7 @@ StandardError=journal
 SyslogIdentifier=wro-emergency
 
 # Seguridad
+SupplementaryGroups=video
 NoNewPrivileges=true
 
 [Install]
