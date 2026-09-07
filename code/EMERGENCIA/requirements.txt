@@ -1,5 +1,8 @@
 gpiozero>=1.6.2
 pyserial>=3.5
-pyyaml>=6.0
 opencv-python>=4.5.0
 numpy>=1.19.0
+
+# Alternativa para cámara CSI OV5647 si OpenCV no funciona:
+# picamera>=1.13  # Para Raspberry Pi OS Buster (legacy)
+# picamera2  # Para Raspberry Pi OS Bullseye/Bookworm (bindings de libcamera)

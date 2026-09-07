@@ -16,19 +16,9 @@ else
     exit 1
 fi
 
-# Leer configuración para determinar qué main ejecutar
-MODO=$(python3 -c "import yaml; config = yaml.safe_load(open('config.yaml')); print(config.get('modo', 'abierto'))" 2>/dev/null || echo "abierto")
-
-echo "Modo de emergencia: $MODO"
-
-# Ejecutar programa de emergencia según el modo
-if [ "$MODO" = "obstaculos" ]; then
-    echo "Iniciando sistema de emergencia (reto de obstáculos)..."
-    python3 main_obstaculos.py
-else
-    echo "Iniciando sistema de emergencia (reto abierto)..."
-    python3 main.py
-fi
+# Ejecutar programa de emergencia unificado (modo dinámico)
+echo "Iniciando sistema de emergencia unificado (modo dinámico)..."
+python3 main.py
 
 # Desactivar entorno virtual al salir
 deactivate
