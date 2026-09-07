@@ -13,9 +13,9 @@ VELOCIDADES = {
 
 # ==================== ÁNGULOS SERVO ====================
 ANGULOS_SERVO = {
-    "recto": 90,
-    "giro_derecha": 50,     # Ángulo de servo para girar a la DERECHA (Regla 9.19: ROJO se mantiene a la derecha)
-    "giro_izquierda": 130   # Ángulo de servo para girar a la IZQUIERDA (Regla 9.19: VERDE se mantiene a la izquierda)
+    "recto": 135,           # Centro del rango 0-270°
+    "giro_derecha": 0,      # Ángulo de servo para girar a la DERECHA (Regla 9.19: ROJO se mantiene a la derecha) - Extremo derecho
+    "giro_izquierda": 270   # Ángulo de servo para girar a la IZQUIERDA (Regla 9.19: VERDE se mantiene a la izquierda) - Extremo izquierdo
 }
 
 # ==================== RANGOS HSV PARA DETECCIÓN DE COLORES ====================
