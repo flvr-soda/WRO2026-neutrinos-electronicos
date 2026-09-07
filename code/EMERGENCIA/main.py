@@ -182,14 +182,14 @@ class CameraStream:
             # Inicializar Picamera2 para cámara CSI OV5647
             self._camera = Picamera2()
             
-            # Configurar la cámara
+            # Configurar la cámara sin preview (headless)
             config = self._camera.create_preview_configuration(
                 main={"size": (CAMARA_WIDTH, CAMARA_HEIGHT), "format": "RGB888"},
                 controls={"FrameRate": CAMARA_FPS}
             )
             self._camera.configure(config)
             
-            # Iniciar captura
+            # Iniciar captura sin preview (headless)
             self._camera.start()
             
             self._running = True
@@ -197,7 +197,7 @@ class CameraStream:
                 target=self._capture_loop, daemon=True, name=f"{self.name}_capture")
             self._thread.start()
             
-            logger.info(f"Cámara CSI iniciada con picamera2: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
+            logger.info(f"Cámara CSI iniciada con picamera2 (headless): {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
             return True
             
         except Exception as e:
