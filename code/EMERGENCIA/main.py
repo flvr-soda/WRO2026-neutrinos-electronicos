@@ -28,13 +28,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 try:
-    from picamera2 import Picamera2
     import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    np = None
+
+try:
+    from picamera2 import Picamera2
     PICAMERA2_AVAILABLE = True
 except ImportError:
     PICAMERA2_AVAILABLE = False
     Picamera2 = None
-    np = None
 
 try:
     import cv2
@@ -137,7 +142,7 @@ logger = logging.getLogger("EMERGENCIA_UNIFICADO")
 @dataclass
 class StampedFrame:
     """Frame con timestamp para sincronización"""
-    data: np.ndarray
+    data: any  # any en lugar de np.ndarray para evitar error cuando np no está disponible
     timestamp: float
     sequence: int
 
@@ -161,6 +166,10 @@ class CameraStream:
         
     def start(self):
         """Iniciar thread de captura"""
+        if not NUMPY_AVAILABLE:
+            logger.warning("numpy no disponible - cámara deshabilitada")
+            return False
+            
         if not PICAMERA2_AVAILABLE:
             logger.warning("picamera2 no disponible - cámara deshabilitada")
             return False
