@@ -161,7 +161,7 @@ void initMotores() {
 }
 
 void aplicarComandos() {
-  int anguloSeguro = constrain(anguloActual, 40, 140);
+  int anguloSeguro = constrain(anguloActual, 0, 180);
   servoDireccion.write(anguloSeguro);
   
   if (velocidadActual == 0) {
