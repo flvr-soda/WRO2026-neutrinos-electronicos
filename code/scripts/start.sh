@@ -29,7 +29,7 @@ case "$1" in
     robot)
         echo "Iniciando sistema principal..."
         cd main_sys
-        python3 src/main.py
+        python3 -m src.main
         ;;
     safety)
         echo "Iniciando sistema alternativo (modo dinámico)..."

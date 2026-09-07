@@ -1,6 +1,7 @@
 import cv2
 import logging
 import sys
+import time
 
 # Importar configuraciones y utilidades de hardware
 from src.config import (
@@ -11,7 +12,7 @@ from src.comms import ArduinoComms, TFLunaLidar
 from src.vision import VisionProcessor
 
 # Importar la Máquina de Estados y sus Estados Concretos
-from estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
+from .estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -26,6 +27,11 @@ def main():
     arduino = ArduinoComms(baudrate=115200)
     vision = VisionProcessor(get_hsv_rojo, get_hsv_verde, get_hsv_magenta, get_vision)
 
+    # Esperar telemetría inicial del Arduino para verificar sensores
+    logging.info("Esperando telemetría del Arduino para verificar sensores...")
+    time.sleep(2)  # Esperar 2 segundos para que Arduino envíe telemetría
+    telemetria = arduino.obtener_telemetria()
+
     # Obtener configuración del LiDAR
     lidar_config = get_lidar()
     pin_servo = lidar_config.get("pin_servo", 18)
@@ -37,16 +43,28 @@ def main():
     vision_config = get_vision()
     camera_index = vision_config.get("camera_index", 0)
     cap = cv2.VideoCapture(camera_index)
-    
+
     if not cap.isOpened():
         logging.error(f"No se pudo abrir la cámara USB en índice {camera_index}")
         raise RuntimeError(f"Error al inicializar cámara USB en índice {camera_index}")
-    
+
     # Configurar resolución
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, vision_config.get("width", 640))
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, vision_config.get("height", 480))
+
+    # Logs de verificación de sensores
+    logging.info("=== SENSORES ===")
+    status_cam = "OK" if cap.isOpened() else "FAIL"
+    status_ard = "OK" if arduino.esta_conectado() else "FAIL"
+    status_lid = "OK" if lidar.serial_conn and lidar.serial_conn.is_open else "FAIL"
+    status_servo = "OK" if lidar.servo is not None else "FAIL"
+    logging.info(f"Cámara: {status_cam} | Arduino: {status_ard} | LiDAR: {status_lid} | Servo: {status_servo}")
     
-    logging.info(f"Cámara USB inicializada en índice {camera_index}")
+    if arduino.esta_conectado():
+        mpu_ok = "z" in telemetria
+        servo_ok = 40 <= telemetria.get("angulo", 0) <= 270
+        ultrasonido_ok = telemetria.get("dist_trasera", -1) >= 0
+        logging.info(f"  MPU6050: {'OK' if mpu_ok else 'FAIL'} | Servo: {'OK' if servo_ok else 'FAIL'} | HC-SR04: {'OK' if ultrasonido_ok else 'FAIL'}")
 
     # 3. Construir el contexto global para la FSM
     contexto = {

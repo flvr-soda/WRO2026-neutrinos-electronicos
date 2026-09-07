@@ -363,7 +363,7 @@ class DirectLidar:
 
     def conectar(self):
         try:
-            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.02)
+            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
             logger.info(f"LiDAR TF-Luna conectado en {self.port}")
         except Exception as e:
             logger.error(f"Error al abrir puerto LiDAR {self.port}: {e}")
@@ -382,13 +382,15 @@ class DirectLidar:
             bytes_esperando = self.conn.in_waiting
             if bytes_esperando >= 9:
                 data = self.conn.read(bytes_esperando)
-                for i in range(len(data) - 8 - 1, -1, -1):
+                # Buscar cabecera 0x59 0x59 de forma más robusta
+                for i in range(len(data) - 8):
                     if data[i] == 0x59 and data[i+1] == 0x59:
                         frame = data[i:i+9]
                         if len(frame) == 9:
                             dist_cm = struct.unpack('<H', frame[2:4])[0]
-                            calidad = frame[1]
-                            if dist_cm > 0 and calidad > 15:
+                            calidad = frame[5]
+                            logger.debug(f"[LiDAR] Raw: {dist_cm}cm, Calidad: {calidad}")
+                            if dist_cm > 0 and calidad > 10:
                                 return float(dist_cm)
         except Exception as e:
             logger.debug(f"Error al leer trama LiDAR: {e}")
@@ -739,6 +741,10 @@ class SafetyRunner:
                     distancia = self.lidar.leer_distancia_cm()
                     if distancia > 0:
                         self.ultima_distancia_valida = distancia
+                    else:
+                        # Log cuando no se obtiene lectura válida
+                        if counter % 40 == 0:  # Log cada ~1 segundo
+                            logger.debug(f"[LiDAR] Sin lectura válida, usando última: {self.ultima_distancia_valida:.0f}cm")
 
                     dist = self.ultima_distancia_valida
                     
