@@ -22,8 +22,7 @@ EMERGENCY_SCRIPT="$EMERGENCY_DIR/start_emergency.sh"
 ROBOT_REQUIREMENTS="$RASPBERRY_PI_DIR/requirements.txt"
 EMERGENCY_REQUIREMENTS="$EMERGENCY_DIR/requirements.txt"
 
-# Configuración de emergencia
-EMERGENCY_CONFIG="$EMERGENCY_DIR/config.yaml"
+# Nota: Ya no se usa config.yaml - el modo se detecta dinámicamente
 
 # Colores para output
 RED='\033[0;31m'
@@ -210,56 +209,12 @@ install_robot_service() {
 # Instalación completa del servicio de emergencia
 install_emergency_service() {
     print_info "=== Instalación completa del servicio de emergencia ==="
+    print_info "Nota: El modo se detecta dinámicamente (abierto/obstáculos) por cámara"
     setup_all_virtualenvs
     setup_permissions
     install_service "wro-emergency.service" "$EMERGENCY_SERVICE"
     enable_service "wro-emergency.service"
     print_info "=== Servicio de emergencia instalado correctamente ==="
-}
-
-# Configurar modo de emergencia
-set_emergency_mode() {
-    local mode=$1
-    
-    if [ "$mode" != "abierto" ] && [ "$mode" != "obstaculos" ]; then
-        print_error "Modo no válido. Use 'abierto' o 'obstaculos'"
-        return 1
-    fi
-    
-    if [ ! -f "$EMERGENCY_CONFIG" ]; then
-        print_error "No se encontró $EMERGENCY_CONFIG"
-        return 1
-    fi
-    
-    print_info "Configurando modo de emergencia a: $mode"
-    
-    # Usar Python para modificar el YAML de forma segura
-    python3 << EOF
-import yaml
-
-with open('$EMERGENCY_CONFIG', 'r') as f:
-    config = yaml.safe_load(f) or {}
-
-config['modo'] = '$mode'
-
-with open('$EMERGENCY_CONFIG', 'w') as f:
-    yaml.dump(config, f, default_flow_style=False)
-
-print(f"Modo cambiado a: $mode")
-EOF
-    
-    print_info "Modo de emergencia configurado correctamente"
-}
-
-# Mostrar modo actual de emergencia
-show_emergency_mode() {
-    if [ ! -f "$EMERGENCY_CONFIG" ]; then
-        print_warn "No se encontró $EMERGENCY_CONFIG"
-        return 1
-    fi
-    
-    local mode=$(python3 -c "import yaml; config = yaml.safe_load(open('$EMERGENCY_CONFIG')); print(config.get('modo', 'abierto'))" 2>/dev/null || echo "abierto")
-    print_info "Modo de emergencia actual: $mode"
 }
 
 # Mostrar ayuda
@@ -272,18 +227,17 @@ show_help() {
     echo "  install-emergency  - Instalar y habilitar servicio de emergencia (wro-emergency.service)"
     echo "  switch-robot       - Cambiar a servicio principal"
     echo "  switch-emergency   - Cambiar a servicio de emergencia"
-    echo "  set-emergency-mode [modo] - Configurar modo de emergencia (abierto u obstaculos)"
-    echo "  show-emergency-mode      - Mostrar modo de emergencia actual"
     echo "  status [servicio]  - Ver estado del servicio (robot o emergency)"
     echo "  logs [servicio]    - Ver logs del servicio (robot o emergency)"
     echo "  help               - Mostrar esta ayuda"
+    echo ""
+    echo "Nota: El modo de emergencia se detecta dinámicamente por cámara"
+    echo "      (abierto si no detecta colores, obstáculos si detecta colores)"
     echo ""
     echo "Ejemplos:"
     echo "  $0 setup"
     echo "  $0 install-robot"
     echo "  $0 switch-emergency"
-    echo "  $0 set-emergency-mode obstaculos"
-    echo "  $0 show-emergency-mode"
     echo "  $0 status robot"
     echo "  $0 logs emergency"
 }
@@ -308,17 +262,6 @@ main() {
             ;;
         switch-emergency)
             switch_service "emergency"
-            ;;
-        set-emergency-mode)
-            if [ -z "${2:-}" ]; then
-                print_error "Especifique el modo: 'abierto' o 'obstaculos'"
-                show_help
-                exit 1
-            fi
-            set_emergency_mode "$2"
-            ;;
-        show-emergency-mode)
-            show_emergency_mode
             ;;
         status)
             case "${2:-}" in
