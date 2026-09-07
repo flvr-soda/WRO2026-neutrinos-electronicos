@@ -10,6 +10,35 @@ from src.config import (
 )
 from src.comms import ArduinoComms, TFLunaLidar
 from src.vision import VisionProcessor
+from src.hardware import MockCamera
+
+
+class MockCameraAdapter:
+    """Adapter to make MockCamera compatible with cv2.VideoCapture interface"""
+    def __init__(self, mock_camera):
+        self.mock_camera = mock_camera
+        self._is_opened = True
+    
+    def read(self):
+        """Returns (True, frame) like cv2.VideoCapture.read()"""
+        frame = self.mock_camera.capture_frame()
+        if frame is not None:
+            return True, frame
+        return False, None
+    
+    def isOpened(self):
+        """Returns True if camera is available"""
+        return self._is_opened
+    
+    def set(self, prop_id, value):
+        """Mock implementation of cv2.VideoCapture.set()"""
+        # MockCamera doesn't support these properties, but we ignore them
+        pass
+    
+    def release(self):
+        """Mock implementation of cv2.VideoCapture.release()"""
+        self.mock_camera.stop()
+        self._is_opened = False
 
 # Importar la Máquina de Estados y sus Estados Concretos
 from .estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
@@ -45,16 +74,21 @@ def main():
     cap = cv2.VideoCapture(camera_index)
 
     if not cap.isOpened():
-        logging.error(f"No se pudo abrir la cámara USB en índice {camera_index}")
-        raise RuntimeError(f"Error al inicializar cámara USB en índice {camera_index}")
-
-    # Configurar resolución
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, vision_config.get("width", 640))
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, vision_config.get("height", 480))
+        logging.warning(f"No se pudo abrir la cámara USB en índice {camera_index}, usando MockCamera")
+        mock_cam = MockCamera()
+        mock_cam.setup(vision_config.get("width", 640), vision_config.get("height", 480))
+        cap = MockCameraAdapter(mock_cam)
+    else:
+        # Configurar resolución
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, vision_config.get("width", 640))
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, vision_config.get("height", 480))
 
     # Logs de verificación de sensores
     logging.info("=== SENSORES ===")
-    status_cam = "OK" if cap.isOpened() else "FAIL"
+    if isinstance(cap, MockCameraAdapter):
+        status_cam = "MOCK"
+    else:
+        status_cam = "OK" if cap.isOpened() else "FAIL"
     status_ard = "OK" if arduino.esta_conectado() else "FAIL"
     status_lid = "OK" if lidar.serial_conn and lidar.serial_conn.is_open else "FAIL"
     status_servo = "OK" if lidar.servo is not None else "FAIL"
@@ -104,7 +138,7 @@ def main():
         if lidar:
             lidar.cerrar()
         if cap:
-            cap.release()  # cv2.VideoCapture usa release()
+            cap.release()  # Works for both cv2.VideoCapture and MockCameraAdapter
         # Liberar botón GPIO si fue transferido al contexto
         boton = contexto.get("boton_parada")
         if boton:
