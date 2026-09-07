@@ -122,7 +122,7 @@ class EstadoInicio(Estado):
             self.estado_anterior_boton = self.boton_inicio.is_pressed
             logging.info(f"Pulsador de retención configurado en GPIO {pin_boton}")
             logging.info(f"Estado inicial: {'ON' if not self.estado_anterior_boton else 'OFF'}")
-        except (GPIOZeroError, ValueError) as e:
+        except (GPIOZeroError, ValueError, Exception) as e:
             logging.error(f"Error al inicializar botón GPIO: {e}")
             logging.warning("Usando modo degradado: espera de teclado")
             self.boton_inicio = None

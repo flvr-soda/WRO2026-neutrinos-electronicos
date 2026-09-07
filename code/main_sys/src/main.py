@@ -12,6 +12,14 @@ from src.comms import ArduinoComms, TFLunaLidar
 from src.vision import VisionProcessor
 from src.hardware import MockCamera
 
+# Intentar importar RPi.GPIO para limpieza de GPIO
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+    GPIO = None
+
 
 class MockCameraAdapter:
     """Adapter to make MockCamera compatible with cv2.VideoCapture interface"""
@@ -47,6 +55,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def main():
     logging.info("Iniciando Sistema Terreneitor WRO 2026 MVP (FSM Modular)")
+    
+    # Limpiar GPIO al inicio para evitar conflictos con ejecuciones anteriores
+    if GPIO_AVAILABLE:
+        try:
+            GPIO.cleanup()
+            logging.info("GPIO limpiado al inicio")
+        except Exception as e:
+            logging.warning(f"Error limpiando GPIO al inicio: {e}")
     
     # 1. Cargar configuración directamente
     velocidades = get_velocidades()
@@ -142,7 +158,17 @@ def main():
         # Liberar botón GPIO si fue transferido al contexto
         boton = contexto.get("boton_parada")
         if boton:
-            boton.close()
+            try:
+                boton.close()
+            except Exception as e:
+                logging.warning(f"Error cerrando botón: {e}")
+        # Limpiar todos los GPIO al final
+        if GPIO_AVAILABLE:
+            try:
+                GPIO.cleanup()
+                logging.info("GPIO limpiado al final")
+            except Exception as e:
+                logging.warning(f"Error limpiando GPIO al final: {e}")
         logging.info("Recursos de hardware liberados.")
 
 if __name__ == "__main__":
