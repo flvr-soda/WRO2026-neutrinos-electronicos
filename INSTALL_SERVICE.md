@@ -11,10 +11,10 @@ Este documento describe cómo instalar los servicios systemd para el sistema pri
 
 ## Instalación Automatizada (Recomendado)
 
-El script `setup_services.sh` automatiza todo el proceso de instalación:
+El script `scripts/setup_services.sh` automatiza todo el proceso de instalación:
 
 ```bash
-cd /home/pi/WRO2026-neutrinos-electronicos/code
+cd /home/pi/WRO2026-neutrinos-electronicos/code/scripts
 
 # Configurar entorno virtual compartido y permisos
 ./setup_services.sh setup
@@ -49,16 +49,15 @@ cd /home/pi/WRO2026-neutrinos-electronicos/code
 
 2. **Dar permisos de ejecución a los scripts:**
    ```bash
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/main_sys/start_robot.sh
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/safety_sys/start_safety.sh
-   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/setup_services.sh
+   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/scripts/start.sh
+   chmod +x /home/pi/WRO2026-neutrinos-electronicos/code/scripts/setup_services.sh
    ```
 
 ### Para el Sistema Principal (wro-robot.service)
 
 1. **Copiar el archivo de servicio al directorio de systemd:**
    ```bash
-   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/main_sys/wro-robot.service /etc/systemd/system/
+   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/services/wro-robot.service /etc/systemd/system/
    ```
 
 2. **Recargar la configuración de systemd:**
@@ -85,7 +84,7 @@ cd /home/pi/WRO2026-neutrinos-electronicos/code
 
 1. **Copiar el archivo de servicio al directorio de systemd:**
    ```bash
-   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/safety_sys/wro-safety.service /etc/systemd/system/
+   sudo cp /home/pi/WRO2026-neutrinos-electronicos/code/services/wro-safety.service /etc/systemd/system/
    ```
 
 2. **Recargar la configuración de systemd:**
@@ -123,6 +122,23 @@ Para cambiar del sistema principal al alternativo (o viceversa):
    sudo systemctl enable wro-safety.service
    sudo systemctl start wro-safety.service
    ```
+
+## Ejecución Manual
+
+### Script Parametrizado
+
+El script `scripts/start.sh` permite ejecutar manualmente cualquier sistema:
+
+```bash
+cd /home/pi/WRO2026-neutrinos-electronicos/code
+source env/bin/activate
+
+# Sistema principal
+./scripts/start.sh robot
+
+# Sistema alternativo
+./scripts/start.sh safety
+```
 
 ## Gestión del Servicio
 
@@ -170,10 +186,9 @@ sudo systemctl disable wro-safety.service
    ls -la /home/pi/WRO2026-neutrinos-electronicos/code/env/
    ```
 
-2. Verificar que los scripts tienen permisos de ejecución:
+2. Verificar que el script start.sh tiene permisos de ejecución:
    ```bash
-   ls -la /home/pi/WRO2026-neutrinos-electronicos/code/main_sys/start_robot.sh
-   ls -la /home/pi/WRO2026-neutrinos-electronicos/code/safety_sys/start_safety.sh
+   ls -la /home/pi/WRO2026-neutrinos-electronicos/code/scripts/start.sh
    ```
 
 3. Revisar los logs para errores:
@@ -187,8 +202,9 @@ sudo systemctl disable wro-safety.service
 
 ## Notas Importantes
 
-- **Entorno virtual compartido:** Ambos sistemas usan el mismo entorno virtual en `code/env/` para optimizar espacio y mantener consistencia.
-- **Configuración directa:** El sistema principal usa `config.py` en lugar de archivos YAML para simplicidad.
+- **Script parametrizado:** `scripts/start.sh` usa parámetros `robot` o `safety` para evitar duplicación
+- **Entorno virtual compartido:** Ambos sistemas usan el mismo entorno virtual en `code/env/` para optimizar espacio
+- **Configuración directa:** El sistema principal usa `config.py` en lugar de archivos YAML para simplicidad
 - **Restart automático:** El servicio se reiniciará automáticamente si el programa falla (configuración `Restart=always`)
 - **Delay de reinicio:** El servicio se reiniciará 10 segundos después de fallar (configuración `RestartSec=10`)
 - **Logs:** Los logs se guardan en el journal de systemd y pueden verse con `journalctl`

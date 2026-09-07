@@ -8,16 +8,15 @@ set -e  # Detener script si hay algún error
 # Rutas del proyecto
 PROJECT_DIR="/home/pi/WRO2026-neutrinos-electronicos"
 CODE_DIR="$PROJECT_DIR/code"
-MAIN_SYS_DIR="$CODE_DIR/main_sys"
-SAFETY_SYS_DIR="$CODE_DIR/safety_sys"
+SCRIPTS_DIR="$CODE_DIR/scripts"
+SERVICES_DIR="$CODE_DIR/services"
 
 # Archivos de servicio
-ROBOT_SERVICE="$MAIN_SYS_DIR/wro-robot.service"
-SAFETY_SERVICE="$SAFETY_SYS_DIR/wro-safety.service"
+ROBOT_SERVICE="$SERVICES_DIR/wro-robot.service"
+SAFETY_SERVICE="$SERVICES_DIR/wro-safety.service"
 
-# Scripts de inicio
-ROBOT_SCRIPT="$MAIN_SYS_DIR/start_robot.sh"
-SAFETY_SCRIPT="$SAFETY_SYS_DIR/start_safety.sh"
+# Script parametrizado
+START_SCRIPT="$SCRIPTS_DIR/start.sh"
 
 # Requisitos compartidos
 REQUIREMENTS="$CODE_DIR/requirements.txt"
@@ -96,18 +95,18 @@ setup_all_virtualenvs() {
 setup_permissions() {
     print_info "Configurando permisos de ejecución..."
     
-    if [ -f "$ROBOT_SCRIPT" ]; then
-        chmod +x "$ROBOT_SCRIPT"
-        print_info "Permisos dados a $ROBOT_SCRIPT"
+    if [ -f "$START_SCRIPT" ]; then
+        chmod +x "$START_SCRIPT"
+        print_info "Permisos dados a $START_SCRIPT"
     else
-        print_warn "No se encontró $ROBOT_SCRIPT"
+        print_warn "No se encontró $START_SCRIPT"
     fi
     
-    if [ -f "$SAFETY_SCRIPT" ]; then
-        chmod +x "$SAFETY_SCRIPT"
-        print_info "Permisos dados a $SAFETY_SCRIPT"
+    if [ -f "$SCRIPTS_DIR/setup_services.sh" ]; then
+        chmod +x "$SCRIPTS_DIR/setup_services.sh"
+        print_info "Permisos dados a setup_services.sh"
     else
-        print_warn "No se encontró $SAFETY_SCRIPT"
+        print_warn "No se encontró setup_services.sh"
     fi
 }
 

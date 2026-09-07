@@ -1,12 +1,12 @@
 [Unit]
-Description=WRO Robot - Sistema Alternativo
+Description=WRO Robot - Sistema Principal
 After=network.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code/safety_sys
-ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/safety_sys/start_safety.sh
+WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code
+ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/scripts/start.sh robot
 Restart=always
 RestartSec=10
 
@@ -16,7 +16,7 @@ Environment="LD_LIBRARY_PATH=/opt/vc/lib"
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=wro-safety
+SyslogIdentifier=wro-robot
 
 # Seguridad
 SupplementaryGroups=video

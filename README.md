@@ -157,7 +157,14 @@ WRO2026-neutrinos-electronicos/
 ├── code/                             # Source code directory
 │   ├── env/                          # Shared Python virtual environment
 │   ├── requirements.txt               # Shared Python package dependencies
-│   ├── setup_services.sh              # Systemd service installation script
+│   │
+│   ├── scripts/                       # Execution and setup scripts
+│   │   ├── start.sh                   # Parametrized launcher (robot|safety)
+│   │   └── setup_services.sh          # Systemd service installation script
+│   │
+│   ├── services/                      # Systemd service files
+│   │   ├── wro-robot.service          # Primary system service
+│   │   └── wro-safety.service         # Alternative system service
 │   │
 │   ├── main_sys/                      # Primary Navigation System
 │   │   ├── src/                        # Core modules
@@ -166,20 +173,15 @@ WRO2026-neutrinos-electronicos/
 │   │   │   ├── estados.py              # Consolidated FSM + states
 │   │   │   ├── comms.py                # Arduino + LiDAR serial drivers
 │   │   │   ├── vision.py               # Asynchronous HSV color detection
-│   │   │   ├── hardware.py            # Hardware interfaces for testing
-│   │   │   └── config.py               # PID controller + configuration
-│   │   ├── tests/                      # Standalone diagnostic tests
-│   │   │   ├── test_camara.py          # Camera headless & GUI diagnostic
-│   │   │   ├── test_lidar.py           # LiDAR & servo angle test
-│   │   │   ├── test_ultrasonico.py      # Ultrasonic reading test
-│   │   │   └── test_completo.py       # Full sensor integration test
-│   │   ├── start_robot.sh              # Execution wrapper script
-│   │   └── wro-robot.service           # Systemd service unit for competition auto-start
+│   │   │   └── hardware.py            # Hardware interfaces for testing
+│   │   └── tests/                      # Standalone diagnostic tests
+│   │       ├── test_camara.py          # Camera headless & GUI diagnostic
+│   │       ├── test_lidar.py           # LiDAR & servo angle test
+│   │       ├── test_ultrasonico.py      # Ultrasonic reading test
+│   │       └── test_completo.py       # Full sensor integration test
 │   │
 │   ├── safety_sys/                     # Alternative Navigation System
-│   │   ├── main.py                     # Dynamic mode reactive racer
-│   │   ├── start_safety.sh            # Service wrapper
-│   │   └── wro-safety.service         # Alternative systemd service file
+│   │   └── main.py                     # Dynamic mode reactive racer
 │   │
 │   └── arduino/                        # Arduino C++ Firmware
 │       └── firmware_terreneitor.ino   # Monolithic firmware (motors, sensors, comms)
@@ -275,10 +277,12 @@ The script strictly follows the **WRO 9.11 Standby $\rightarrow$ Start Button** 
    python3 -m venv env
    source env/bin/activate
    pip install -r requirements.txt
+   deactivate
    ```
 
 3. **Install systemd services (automated):**
    ```bash
+   cd scripts
    ./setup_services.sh setup           # Configure environment and permissions
    ./setup_services.sh install-robot  # Install primary system service
    ./setup_services.sh install-safety # Install alternative system service
@@ -295,27 +299,39 @@ The script strictly follows the **WRO 9.11 Standby $\rightarrow$ Start Button** 
 
 ### Manual Execution
 
-**Primary System:**
+**Using the parametrized script:**
 ```bash
 cd /home/pi/WRO2026-neutrinos-electronicos/code
 source env/bin/activate
-cd main_sys
-python3 src/main.py
+
+# Primary system
+./scripts/start.sh robot
+
+# Safety system
+./scripts/start.sh safety
 ```
 
-**Safety System:**
+**Direct execution:**
 ```bash
 cd /home/pi/WRO2026-neutrinos-electronicos/code
 source env/bin/activate
+
+# Primary system
+cd main_sys
+python3 src/main.py
+
+# Safety system
 cd safety_sys
 python3 main.py
 ```
 
 ### Systemd Service Management
 
-The `setup_services.sh` script provides automated service management:
+The `scripts/setup_services.sh` script provides automated service management:
 
 ```bash
+cd /home/pi/WRO2026-neutrinos-electronicos/code/scripts
+
 # Setup environment and permissions
 ./setup_services.sh setup
 
@@ -326,10 +342,12 @@ The `setup_services.sh` script provides automated service management:
 ./setup_services.sh switch-safety
 
 # Check service status
-./setup_services.sh status robot    # or safety
+./setup_services.sh status robot
+./setup_services.sh status safety
 
 # View service logs
-./setup_services.sh logs robot      # or safety
+./setup_services.sh logs robot
+./setup_services.sh logs safety
 ```
 
 **Manual Service Management:**
