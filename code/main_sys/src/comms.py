@@ -10,6 +10,7 @@ import queue
 import serial
 import glob
 import struct
+import os
 from gpiozero import AngularServo, GPIOZeroError
 
 
@@ -81,6 +82,10 @@ class ArduinoComms:
             if ports:
                 # Retornar el primer puerto encontrado
                 return ports[0]
+        
+        # Fallback para Raspberry Pi: intentar /dev/serial0 (UART via GPIO)
+        if os.path.exists('/dev/serial0'):
+            return '/dev/serial0'
         
         return None
 
