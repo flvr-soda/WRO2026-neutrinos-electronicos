@@ -24,6 +24,7 @@ def main():
     # Inicializar servo
     print("Inicializando servo...")
     servo = get_servo(use_mock=False)
+    print(f"Tipo de servo: {type(servo).__name__}")
     if not servo.setup(SERVO_PIN, frequency=50):
         print("Error: No se pudo inicializar el servo")
         return
@@ -34,9 +35,13 @@ def main():
     
     # Conectar LiDAR
     print(f"Conectando a LiDAR en {LIDAR_PORT}...")
-    ser = serial.Serial(LIDAR_PORT, LIDAR_BAUD, timeout=1)
-    time.sleep(2)
-    print("LiDAR conectado")
+    try:
+        ser = serial.Serial(LIDAR_PORT, LIDAR_BAUD, timeout=0.1)
+        time.sleep(2)
+        print(f"LiDAR conectado: {ser.is_open}")
+    except Exception as e:
+        print(f"Error conectando al LiDAR: {e}")
+        return
     
     def read_distance():
         """Lee distancia del TF-Luna en cm"""
@@ -48,11 +53,12 @@ def main():
                         frame = data[i:i+9]
                         if len(frame) == 9:
                             dist_cm = struct.unpack('<H', frame[2:4])[0]
-                            signal = frame[1]
-                            if signal > 30:
+                            calidad = frame[5]  # Byte de calidad está en posición 5
+                            print(f"DEBUG: Raw distance: {dist_cm}cm, Quality: {calidad}")
+                            if dist_cm > 0 and calidad > 10:
                                 return dist_cm
-        except:
-            pass
+        except Exception as e:
+            print(f"Error reading LiDAR: {e}")
         return -1.0
     
     print("\nPrueba de lectura continua (Ctrl+C para salir)...\n")
