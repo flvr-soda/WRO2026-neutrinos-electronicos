@@ -10,9 +10,6 @@ from src.config import (
 from src.comms import ArduinoComms, TFLunaLidar
 from src.vision import VisionProcessor
 
-# Importar picamera2 para cámara CSI
-from picamera2 import Picamera2
-
 # Importar la Máquina de Estados y sus Estados Concretos
 from estados import MaquinaDeEstados, EstadoInicio, EstadoNavegacion, EstadoEstacionar, EstadoFin
 
@@ -36,18 +33,20 @@ def main():
     lidar_port = serial_ports.get("lidar", "/dev/serial0")
     lidar = TFLunaLidar(port=lidar_port, baudrate=115200, pin_servo=pin_servo)
 
-    # Inicializar cámara CSI con picamera2
+    # Inicializar cámara USB con cv2.VideoCapture
     vision_config = get_vision()
-    picam2 = Picamera2()
-    config = picam2.create_video_configuration(
-        main={
-            "format": vision_config.get("format", "RGB888"),
-            "size": (vision_config.get("width", 640), vision_config.get("height", 480))
-        }
-    )
-    picam2.configure(config)
-    picam2.start()
-    logging.info("Cámara CSI inicializada con picamera2")
+    camera_index = vision_config.get("camera_index", 0)
+    cap = cv2.VideoCapture(camera_index)
+    
+    if not cap.isOpened():
+        logging.error(f"No se pudo abrir la cámara USB en índice {camera_index}")
+        raise RuntimeError(f"Error al inicializar cámara USB en índice {camera_index}")
+    
+    # Configurar resolución
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, vision_config.get("width", 640))
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, vision_config.get("height", 480))
+    
+    logging.info(f"Cámara USB inicializada en índice {camera_index}")
 
     # 3. Construir el contexto global para la FSM
     contexto = {
@@ -57,7 +56,7 @@ def main():
         "arduino": arduino,
         "vision": vision,
         "lidar": lidar,
-        "cap": picam2  # Mantener nombre "cap" para compatibilidad con código existente
+        "cap": cap  # Cámara USB cv2.VideoCapture
     }
 
     # 4. Inicializar y poblar la Máquina de Estados
@@ -86,9 +85,8 @@ def main():
             arduino.cerrar()
         if lidar:
             lidar.cerrar()
-        if picam2:
-            picam2.stop()  # Picamera2 usa stop() en lugar de release()
-            picam2.close()
+        if cap:
+            cap.release()  # cv2.VideoCapture usa release()
         # Liberar botón GPIO si fue transferido al contexto
         boton = contexto.get("boton_parada")
         if boton:

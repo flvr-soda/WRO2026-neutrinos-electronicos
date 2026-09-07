@@ -68,14 +68,13 @@ class VisionProcessor:
             t_start = time.monotonic()
 
             try:
-                # Picamera2 usa capture_array() en lugar de cap.read()
-                frame = cap.capture_array()
-                if frame is not None:
+                # cv2.VideoCapture usa read() para capturar frames
+                ret, frame = cap.read()
+                if ret and frame is not None:
                     self.frame_counter += 1
-                    # Convertir RGB→BGR para compatibilidad con código HSV actual
-                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                    deteccion = self._procesar_frame_interno(frame_bgr)
-                    self._calcular_velocidad(frame_bgr)
+                    # Frame ya viene en BGR desde webcam USB (formato nativo OpenCV)
+                    deteccion = self._procesar_frame_interno(frame)
+                    self._calcular_velocidad(frame)
                     with self.lock:
                         self.latest_deteccion = deteccion
                     self.last_frame_time = t_start

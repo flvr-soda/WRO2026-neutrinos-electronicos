@@ -95,8 +95,9 @@ TIEMPO_COOLDOWN_ESQUINA_SEG = 1.4
 DURACION_ESQUIVA_SEG = 1.2
 DURACION_MIN_ESQUIVA_SEG = 0.5
 
-# Configuración de cámara
+# Configuración de cámara USB
 CAMARA_ENABLED = True
+CAMARA_INDEX = 0
 CAMARA_WIDTH = 640
 CAMARA_HEIGHT = 480
 CAMARA_FPS = 30
@@ -141,7 +142,7 @@ class StampedFrame:
 
 
 class CameraStream:
-    """Streaming de cámara CSI con thread separado y buffer limitado."""
+    """Streaming de cámara USB con thread separado y buffer limitado."""
     
     def __init__(self, buffer_size=CAMARA_BUFFER_SIZE, name="camera"):
         self.name = name
@@ -172,10 +173,10 @@ class CameraStream:
             return False
             
         try:
-            # Backend V4L2 para cámaras CSI (OV5647) en headless
-            self._camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
+            # Cámara USB con backend por defecto de OpenCV
+            self._camera = cv2.VideoCapture(CAMARA_INDEX)
             if not self._camera.isOpened():
-                logger.error("No se pudo abrir la cámara")
+                logger.error(f"No se pudo abrir la cámara USB en índice {CAMARA_INDEX}")
                 return False
                 
             self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMARA_WIDTH)
@@ -187,7 +188,7 @@ class CameraStream:
                 target=self._capture_loop, daemon=True, name=f"{self.name}_capture")
             self._thread.start()
             
-            logger.info(f"Cámara CSI iniciada con OpenCV V4L2: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
+            logger.info(f"Cámara USB iniciada: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
             return True
             
         except Exception as e:

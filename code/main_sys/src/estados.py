@@ -4,7 +4,8 @@ import sched
 import serial
 import cv2
 from gpiozero import Button, GPIOZeroError
-from src.config import PID, get_hardware, get_competicion, get_velocidades, get_lidar, get_vehiculo, get_vision
+from src.config import get_hardware, get_competicion, get_velocidades, get_lidar, get_vehiculo, get_vision
+from src.config import PID
 
 
 class Estado:
@@ -167,6 +168,131 @@ class EstadoNavegacion(Estado):
         factor = max(0.0, min(1.0, 1.0 - abs(cx - ancho / 2) / (ancho / 2)))
         return int(recto + factor * (destino - recto))
 
+    def _detener_robot_emergencia(self, contexto, motivo):
+        """Método centralizado para detención de emergencia."""
+        arduino = contexto.get("arduino")
+        if arduino:
+            arduino.enviar_comando(0, 90)
+        logging.warning(f"Detención de emergencia: {motivo}")
+        return "FIN"
+
+    def _decidir_movimiento_obstaculos(self, deteccion, velocidades, angulos, ancho, recto):
+        """Decide movimiento basado en detección de obstáculos."""
+        color = deteccion["color"]
+        cx = deteccion["centroide_x"]
+        
+        estrategia = {
+            "ROJO": (velocidades.get("evasion", 40), angulos.get("giro_derecha", 50)),
+            "VERDE": (velocidades.get("evasion", 40), angulos.get("giro_izquierda", 130)),
+        }
+        
+        if color in estrategia:
+            vel, ang = estrategia[color]
+            ang = self._angulo_proporcional(recto, ang, cx, ancho)
+            return vel, ang
+        return velocidades.get("crucero", 60), recto
+
+    def _obtener_telemetria_segura(self, arduino):
+        """Obtiene telemetría con manejo de errores centralizado."""
+        try:
+            return arduino.obtener_telemetria() if arduino else {}
+        except (AttributeError, KeyError) as e:
+            logging.error(f"Error al obtener telemetría: {e}")
+            return {}
+
+    def _obtener_componentes(self, contexto):
+        """Extrae y valida componentes del contexto."""
+        return {
+            'cap': contexto.get("cap"),
+            'vision': contexto.get("vision"),
+            'arduino': contexto.get("arduino"),
+            'lidar': contexto.get("lidar"),
+            'velocidades': contexto.get("velocidades"),
+            'angulos': contexto.get("angulos")
+        }
+
+    def _ejecutar_auto_deteccion(self, contexto: dict, tiempo_transcurrido: float):
+        """Ejecuta la lógica de auto-detección de modo y sentido de giro."""
+        if self.auto_detect_modo and not self.modo_detectado:
+            self._detectar_modo(contexto, tiempo_transcurrido)
+        
+        if self.auto_detect_sentido and not self.sentido_detectado:
+            self._detectar_sentido(contexto, tiempo_transcurrido)
+        
+        # Verificar si ambas detecciones están completas
+        if (not self.auto_detect_modo or self.modo_detectado) and (not self.auto_detect_sentido or self.sentido_detectado):
+            self.deteccion_completada = True
+            logging.info(f"Auto-detección completada: Modo={self.modo_reto}, Sentido={self.sentido_giro}")
+
+    def _detectar_modo(self, contexto: dict, tiempo_deteccion: float):
+        """Lógica separada para detección de modo de competición."""
+        if tiempo_deteccion >= self.modo_deteccion_timeout:
+            self.modo_reto = self._determinar_modo_final()
+            self.modo_detectado = True
+            return
+        
+        vision = contexto.get("vision")
+        if vision:
+            deteccion = vision.obtener_deteccion()
+            color = deteccion.get("color", "NINGUNO")
+            if color in ["ROJO", "VERDE"]:
+                self.colores_detectados += 1
+                logging.debug(f"Detección de color {color} - Total: {self.colores_detectados}")
+
+    def _determinar_modo_final(self):
+        """Determina el modo final basado en detecciones acumuladas."""
+        if self.colores_detectados >= self.modo_deteccion_umbral:
+            logging.info(f"Auto-detección: MODO OBSTÁCULOS detectado ({self.colores_detectados} colores)")
+            return "obstaculos"
+        else:
+            logging.info(f"Auto-detección: MODO {self.modo_reto_default.upper()} por defecto (colores insuficientes: {self.colores_detectados})")
+            return self.modo_reto_default
+
+    def _detectar_sentido(self, contexto: dict, tiempo_deteccion: float):
+        """Lógica separada para detección de sentido de giro."""
+        if tiempo_deteccion >= self.sentido_deteccion_timeout:
+            if not self.sentido_detectado:
+                self.sentido_giro = self.sentido_giro_default
+                logging.info(f"Auto-detección: SENTIDO {self.sentido_giro.upper()} por defecto (timeout)")
+            self.sentido_detectado = True
+            return
+        
+        lidar = contexto.get("lidar")
+        if lidar:
+            try:
+                dist = lidar.leer_distancia()
+                if 0.0 < dist < self.sentido_deteccion_distancia:
+                    self._analizar_paredes_laterales(lidar)
+            except (AttributeError, ValueError) as e:
+                logging.error(f"Error en auto-detección de sentido: {e}")
+
+    def _analizar_paredes_laterales(self, lidar):
+        """Analiza paredes laterales para determinar sentido de giro."""
+        logging.info("Auto-detección: Esquina detectada, analizando paredes laterales...")
+        
+        # Escanear lado derecho
+        lidar.apuntar_servo(45)
+        time.sleep(0.3)
+        dist_derecha = lidar.leer_distancia()
+        
+        # Escanear lado izquierdo
+        lidar.apuntar_servo(135)
+        time.sleep(0.3)
+        dist_izquierda = lidar.leer_distancia()
+        
+        # Volver al centro
+        lidar.apuntar_servo(90)
+        
+        # Determinar sentido basado en qué pared está más cerca
+        if dist_derecha > 0 and dist_izquierda > 0:
+            if dist_derecha < dist_izquierda:
+                self.sentido_giro = "horario"
+                logging.info(f"Auto-detección: SENTIDO HORARIO detectado (derecha: {dist_derecha:.1f}cm, izquierda: {dist_izquierda:.1f}cm)")
+            else:
+                self.sentido_giro = "antihorario"
+                logging.info(f"Auto-detección: SENTIDO ANTIHORARIO detectado (derecha: {dist_derecha:.1f}cm, izquierda: {dist_izquierda:.1f}cm)")
+            self.sentido_detectado = True
+
     def enter(self, contexto: dict):
         super().enter(contexto)
         logging.info("Modo navegación autónoma iniciado.")
@@ -179,6 +305,24 @@ class EstadoNavegacion(Estado):
         self.max_vueltas = comp_config.get("max_vueltas", 3)
         self.tiempo_limite_segundos = comp_config.get("tiempo_limite_segundos", 180)  # C-3: asignado aqui
         self.deteccion_violacion_senales = comp_config.get("deteccion_violacion_senales", True)  # Regla 9.25.5
+
+        # ==================== AUTO-DETECCIÓN ====================
+        self.auto_detect_modo = comp_config.get("auto_detect_modo", True)
+        self.modo_deteccion_timeout = comp_config.get("modo_deteccion_timeout_seg", 10)
+        self.modo_deteccion_umbral = comp_config.get("modo_deteccion_umbral_colores", 5)
+        self.modo_reto_default = comp_config.get("modo_reto_default", "abierto")
+        
+        self.auto_detect_sentido = comp_config.get("auto_detect_sentido", True)
+        self.sentido_deteccion_distancia = comp_config.get("sentido_deteccion_distancia_cm", 70)
+        self.sentido_deteccion_timeout = comp_config.get("sentido_deteccion_timeout_seg", 15)
+        self.sentido_giro_default = comp_config.get("sentido_giro_default", "horario")
+        
+        # Variables de estado para auto-detección
+        self.modo_detectado = False
+        self.sentido_detectado = False
+        self.colores_detectados = 0  # Contador de detecciones rojo/verde
+        self.tiempo_inicio_deteccion = time.time()
+        self.deteccion_completada = False
 
         lidar_config = get_lidar()
         self.distancia_giro_cm = lidar_config.get("distancia_giro_cm", 50.0)
@@ -238,9 +382,13 @@ class EstadoNavegacion(Estado):
         self.tiempo_inicio_ronda = time.time()
         logging.info(f"Límite de tiempo: {self.tiempo_limite_segundos} segundos")
 
-        # Obtener ancho del frame desde configuración (picamera2 no usa cap.get())
-        vision_config = get_vision()
-        self.ancho = vision_config.get("width", 640)
+        # Obtener ancho del frame desde cámara USB (cv2.VideoCapture)
+        cap = contexto.get("cap")
+        if cap:
+            self.ancho = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        else:
+            vision_config = get_vision()
+            self.ancho = vision_config.get("width", 640)
 
         # Procesamiento asíncrono de visión
         vision = contexto.get("vision")
@@ -251,27 +399,25 @@ class EstadoNavegacion(Estado):
     def ejecutar(self, contexto: dict) -> str:
         # Verificación de botón de parada de emergencia (switch)
         if self.boton_parada and self.boton_parada.is_pressed:
-            logging.warning("Botón de parada presionado. Deteniendo robot.")
-            arduino = contexto.get("arduino")
-            if arduino:
-                arduino.enviar_comando(0, 90)
-            return "FIN"
+            return self._detener_robot_emergencia(contexto, "Botón de parada presionado")
 
         # Verificación de límite de tiempo (Regla 9.25.1)
         tiempo_transcurrido = time.time() - self.tiempo_inicio_ronda
         if tiempo_transcurrido > self.tiempo_limite_segundos:
-            logging.warning(f"Tiempo límite agotado ({tiempo_transcurrido:.1f}s > {self.tiempo_limite_segundos}s)")
-            arduino = contexto.get("arduino")
-            if arduino:
-                arduino.enviar_comando(0, 90)
-            return "FIN"
+            return self._detener_robot_emergencia(contexto, f"Tiempo límite agotado ({tiempo_transcurrido:.1f}s > {self.tiempo_limite_segundos}s)")
 
-        cap = contexto.get("cap")
-        vision = contexto.get("vision")
-        arduino = contexto.get("arduino")
-        lidar = contexto.get("lidar")
-        velocidades = contexto.get("velocidades")
-        angulos = contexto.get("angulos")
+        # ==================== LÓGICA DE AUTO-DETECCIÓN ====================
+        if not self.deteccion_completada:
+            self._ejecutar_auto_deteccion(contexto, tiempo_transcurrido)
+
+        # Extraer componentes del contexto
+        componentes = self._obtener_componentes(contexto)
+        cap = componentes['cap']
+        vision = componentes['vision']
+        arduino = componentes['arduino']
+        lidar = componentes['lidar']
+        velocidades = componentes['velocidades']
+        angulos = componentes['angulos']
 
         if cap is None:
             logging.error("Cámara no disponible en contexto.")
@@ -287,13 +433,8 @@ class EstadoNavegacion(Estado):
         recto = angulos.get("recto", 90)
 
         # Telemetría del MPU6050
-        try:
-            telemetria = arduino.obtener_telemetria() if arduino else {}
-            z_acumulado = telemetria.get("z", 0)
-        except (AttributeError, KeyError) as e:
-            logging.error(f"Error al obtener telemetría del Arduino: {e}")
-            telemetria = {}
-            z_acumulado = 0
+        telemetria = self._obtener_telemetria_segura(arduino)
+        z_acumulado = telemetria.get("z", 0)
 
         # Cálculo de vueltas
         vueltas_completas = int(abs(z_acumulado) / 360.0)
@@ -315,9 +456,7 @@ class EstadoNavegacion(Estado):
 
                 if self.modo_reto == "abierto":
                     logging.info("Deteniendo vehículo (Reto Abierto).")
-                    if arduino:
-                        arduino.enviar_comando(0, recto)
-                    return "FIN"
+                    return self._detener_robot_emergencia(contexto, "Completado de vueltas (Reto Abierto)")
 
         if self.modo_reto == "obstaculos":
             # Modo obstáculos (detección asíncrona)
@@ -339,18 +478,7 @@ class EstadoNavegacion(Estado):
                 self.ultima_deteccion_color = color
 
             # Decisión de movimiento (Regla 9.19: ROJO→derecha, VERDE→izquierda)
-            if color == "ROJO":
-                # Regla 9.19: ROJO -> mantenerse a la DERECHA
-                vel = velocidades.get("evasion", 40)
-                ang = self._angulo_proporcional(recto, angulos.get("giro_derecha", 50), cx, ancho)
-            elif color == "VERDE":
-                # Regla 9.19: VERDE -> mantenerse a la IZQUIERDA
-                vel = velocidades.get("evasion", 40)
-                ang = self._angulo_proporcional(recto, angulos.get("giro_izquierda", 130), cx, ancho)
-            else:
-                # MAGENTA o NINGUNO: avanzar recto a velocidad crucero
-                vel = velocidades.get("crucero", 60)
-                ang = recto
+            vel, ang = self._decidir_movimiento_obstaculos(deteccion, velocidades, angulos, ancho, recto)
 
         else:
             # Modo abierto (muros con LiDAR)
@@ -454,6 +582,13 @@ class EstadoEstacionar(Estado):
         super().enter(contexto)
         logging.info("Maniobra de estacionamiento iniciada.")
         
+        # Activar visión para detección de área MAGENTA
+        vision = contexto.get("vision")
+        cap = contexto.get("cap")
+        if vision and cap:
+            vision.iniciar_procesamiento_asincrono(cap)
+            logging.info("Visión activada para detección de área MAGENTA en estacionamiento")
+        
         # Configuración del LiDAR
         lidar_config = get_lidar()
         self.umbral_hueco_cm = lidar_config.get("umbral_hueco_cm", 55.0)
@@ -506,7 +641,7 @@ class EstadoEstacionar(Estado):
             return "FIN"
         
         if self.fase == "escaneo":
-            return self._fase_escaneo(lidar, arduino)
+            return self._fase_escaneo(lidar, arduino, contexto)
         elif self.fase == "aproximacion":
             return self._fase_aproximacion(arduino)
         elif self.fase == "reversa":
@@ -519,9 +654,9 @@ class EstadoEstacionar(Estado):
         
         return "ESTACIONAR"
     
-    def _fase_escaneo(self, lidar, arduino):
-        """Escanea el entorno buscando un hueco para estacionar."""
-        logging.info("Fase: Escaneo de hueco de estacionamiento.")
+    def _fase_escaneo(self, lidar, arduino, contexto):
+        """Escanea el entorno buscando un hueco para estacionamiento usando LiDAR + cámara."""
+        logging.info("Fase: Escaneo de hueco de estacionamiento (LiDAR + Cámara).")
         
         # Detener Robot para Escaneo
         self._mover(arduino, 0, self.recto, 0.5, "detener robot para escaneo")
@@ -534,9 +669,26 @@ class EstadoEstacionar(Estado):
             logging.error(f"Error al escanear entorno con LiDAR: {e}")
             mapa = []
         
-        # Buscar Hueco de Estacionamiento
+        # Verificar detección de MAGENTA con cámara
+        vision = contexto.get("vision")
+        magenta_detectado = False
+        area_magenta = 0
+        
+        if vision:
+            try:
+                deteccion = vision.obtener_deteccion()
+                if deteccion.get("color") == "MAGENTA":
+                    magenta_detectado = True
+                    area_magenta = deteccion.get("area", 0)
+                    logging.info(f"Área MAGENTA detectada (área: {area_magenta})")
+            except (AttributeError, KeyError) as e:
+                logging.error(f"Error al obtener detección de visión: {e}")
+        
+        # Buscar Hueco de Estacionamiento con LiDAR
         # Hueco detectado: 3 lecturas consecutivas con distancia > umbral
         hueco_encontrado = False
+        angulo_hueco = None
+        
         for i in range(len(mapa) - 2):
             _, dist1 = mapa[i]
             ang2, dist2 = mapa[i + 1]
@@ -545,20 +697,33 @@ class EstadoEstacionar(Estado):
                 dist2 > self.umbral_hueco_cm and
                 dist3 > self.umbral_hueco_cm):
                 hueco_encontrado = True
-                logging.info(f"Hueco detectado en ángulo {ang2}°")
+                angulo_hueco = ang2
+                logging.info(f"Hueco LiDAR detectado en ángulo {ang2}°")
                 break
         
-        if hueco_encontrado:
+        # Validación combinada: Requiere hueco LiDAR Y área MAGENTA
+        hueco_valido = hueco_encontrado and magenta_detectado
+        
+        if hueco_valido:
             self.fase = "aproximacion"
             self.tiempo_inicio_fase = time.time()
-            logging.info("Hueco encontrado, iniciando aproximación.")
+            logging.info(f"Hueco validado (LiDAR: {angulo_hueco}° + MAGENTA: área {area_magenta}). Iniciando aproximación.")
+        elif hueco_encontrado and not magenta_detectado:
+            # Hueco encontrado pero sin área MAGENTA - no es el estacionamiento correcto
+            logging.warning("Hueco LiDAR detectado pero sin área MAGENTA - Continuando búsqueda")
+            self.intentos_escaneo += 1
+            if self.intentos_escaneo >= self.max_intentos_escaneo:
+                logging.warning("No se encontró hueco válido después de varios intentos. Abortando.")
+                return "FIN"
+            logging.info(f"Intento {self.intentos_escaneo}/{self.max_intentos_escaneo} - Avanzando para reintentar")
+            self._mover(arduino, self.vel_lenta, self.recto, 1.0, "avanzar para reintentar escaneo")
         else:
+            # No hay hueco
             self.intentos_escaneo += 1
             if self.intentos_escaneo >= self.max_intentos_escaneo:
                 logging.warning("No se encontró hueco después de varios intentos. Abortando.")
                 return "FIN"
             logging.info(f"No se encontró hueco. Intento {self.intentos_escaneo}/{self.max_intentos_escaneo}")
-            # Avanzar y Reintentar Escaneo
             self._mover(arduino, self.vel_lenta, self.recto, 1.0, "avanzar para reintentar escaneo")
         
         return "ESTACIONAR"
@@ -583,7 +748,7 @@ class EstadoEstacionar(Estado):
         """Realiza la maniobra de reversa dinámica dentro del hueco usando odometría y ultrasonido."""
         logging.info("Fase: Reversa dinámica (HC-SR04 + MPU6050)")
         
-        telemetria_inicial = arduino.obtener_telemetria()
+        telemetria_inicial = self._obtener_telemetria_segura(arduino)
         z_inicial = telemetria_inicial.get("z", 0)
         
         # Timeout de seguridad por paso (evita bloqueo infinito si el sensor falla)
@@ -594,7 +759,7 @@ class EstadoEstacionar(Estado):
         self._mover(arduino, self.vel_reversa, self.evasion_der, 0, "girar para reversa")
         t_paso = time.time()
         while True:
-            telemetria = arduino.obtener_telemetria()
+            telemetria = self._obtener_telemetria_segura(arduino)
             z_actual = telemetria.get("z", 0)
             dist_trasera = telemetria.get("dist_trasera", -1.0)
             
@@ -613,7 +778,7 @@ class EstadoEstacionar(Estado):
         self._mover(arduino, self.vel_reversa, self.recto, 0, "enderezar en reversa")
         t_paso = time.time()
         while True:
-            telemetria = arduino.obtener_telemetria()
+            telemetria = self._obtener_telemetria_segura(arduino)
             dist_trasera = telemetria.get("dist_trasera", -1.0)
             
             # Usar distancia crítica basada en ancho trasero
@@ -629,7 +794,7 @@ class EstadoEstacionar(Estado):
         self._mover(arduino, self.vel_reversa, self.evasion_izq, 0, "girar opuesto en reversa")
         t_paso = time.time()
         while True:
-            telemetria = arduino.obtener_telemetria()
+            telemetria = self._obtener_telemetria_segura(arduino)
             z_actual = telemetria.get("z", 0)
             dist_trasera = telemetria.get("dist_trasera", -1.0)
             
@@ -647,7 +812,7 @@ class EstadoEstacionar(Estado):
         self._mover(arduino, 0, self.recto, 0.3, "detener en reversa")
         
         # Ajuste fino final: Centrar entre ambas paredes
-        telemetria = arduino.obtener_telemetria()
+        telemetria = self._obtener_telemetria_segura(arduino)
         dist_trasera = telemetria.get("dist_trasera", -1.0)
         
         try:
@@ -685,6 +850,13 @@ class EstadoEstacionar(Estado):
 
     def exit(self, contexto: dict):
         super().exit(contexto)
+        
+        # Desactivar visión al salir del estado
+        vision = contexto.get("vision")
+        if vision:
+            vision.detener_procesamiento_asincrono()
+            logging.info("Visión desactivada al salir de estacionamiento")
+        
         # Asegurar Detención del Robot
         arduino = contexto.get("arduino")
         if arduino:

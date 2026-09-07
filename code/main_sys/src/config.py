@@ -46,7 +46,16 @@ COMPETICION = {
     "distancia_seccion_arranque_cm": 300,  # Distancia desde inicio hasta sección de arranque (Regla 9.22)
     "retorno_arranque_habilitado": True,  # Habilitar retorno a sección de arranque después de 3 vueltas
     "distancia_seccion_meta_cm": 300,     # Distancia desde inicio hasta sección de meta (Regla 9.25.2, Reto Abierto)
-    "deteccion_violacion_senales": True   # Habilitar detección de violación de señales (Regla 9.25.5)
+    "deteccion_violacion_senales": True,   # Habilitar detección de violación de señales (Regla 9.25.5)
+    # ==================== AUTO-DETECCIÓN ====================
+    "auto_detect_modo": True,           # Habilitar auto-detección del modo de competición
+    "modo_deteccion_timeout_seg": 10,   # Ventana de tiempo para detección de modo (segundos)
+    "modo_deteccion_umbral_colores": 5, # Mínimo de detecciones de color para activar modo obstáculos
+    "modo_reto_default": "abierto",     # Modo por defecto si falla la detección
+    "auto_detect_sentido": True,         # Habilitar auto-detección del sentido de giro
+    "sentido_deteccion_distancia_cm": 70, # Umbral de distancia para detección de esquina (cm)
+    "sentido_deteccion_timeout_seg": 15,  # Ventana de tiempo para detección de sentido (segundos)
+    "sentido_giro_default": "horario"    # Sentido por defecto si falla la detección
 }
 
 # ==================== CONFIGURACIÓN DE HARDWARE ====================
@@ -57,9 +66,9 @@ HARDWARE = {
 # ==================== CONFIGURACIÓN DE VISIÓN ====================
 VISION = {
     "min_area": 500,
-    "width": 640,             # Ancho de frame para cámara CSI
-    "height": 480,            # Alto de frame para cámara CSI
-    "format": "RGB888",       # Formato de pixel para cámara CSI (RGB, no BGR)
+    "camera_index": 0,        # Índice de cámara USB (0 para /dev/video0)
+    "width": 640,             # Ancho de frame para cámara USB
+    "height": 480,            # Alto de frame para cámara USB
     "factor_px_cm": 0.5,      # Factor de calibración: 1 píxel = X cm en el suelo
     "odometria_visual_habilitada": True,  # true para regular velocidad con PID y odometría visual
     "pid": {
@@ -94,6 +103,58 @@ SERIAL_PORTS = {
     "arduino": "/dev/ttyUSB0",  # Puerto serial para Arduino
     "lidar": "/dev/serial0"     # Puerto serial para LiDAR TF-Luna
 }
+
+# ==================== CONTROLADOR PID ====================
+class PID:
+    """Controlador PID genérico con anti-windup."""
+    def __init__(self, kp, ki, kd, output_min=0, output_max=100, integral_max=50.0):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_min = output_min
+        self.output_max = output_max
+        self.integral_max = integral_max
+        
+        self.integral = 0.0
+        self.prev_error = 0.0
+        self.first_iteration = True
+        
+    def set_setpoint(self, setpoint):
+        """Establece el valor objetivo."""
+        self.setpoint = setpoint
+        
+    def compute(self, measurement):
+        """Calcula la salida del PID basada en la medición actual."""
+        error = self.setpoint - measurement
+        
+        # En la primera iteración, retornar 0 para evitar picos
+        if self.first_iteration:
+            self.first_iteration = False
+            self.prev_error = error
+            return 0.0
+        
+        # Término proporcional
+        p_term = self.kp * error
+        
+        # Término integral con anti-windup
+        self.integral += error
+        if self.integral > self.integral_max:
+            self.integral = self.integral_max
+        elif self.integral < -self.integral_max:
+            self.integral = -self.integral_max
+        i_term = self.ki * self.integral
+        
+        # Término derivativo
+        d_term = self.kd * (error - self.prev_error)
+        self.prev_error = error
+        
+        # Calcular salida
+        output = p_term + i_term + d_term
+        
+        # Limitar salida al rango permitido
+        output = max(self.output_min, min(self.output_max, output))
+        
+        return output
 
 # ==================== FUNCIONES DE COMPATIBILIDAD ====================
 def get_velocidades():
