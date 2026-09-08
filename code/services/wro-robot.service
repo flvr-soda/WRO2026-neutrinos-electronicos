@@ -1,12 +1,12 @@
 [Unit]
-Description=WRO Robot - Sistema de Navegación Autónoma
+Description=WRO Robot - Sistema Alternativo
 After=network.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi
-ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/raspberry_pi/start_robot.sh
+WorkingDirectory=/home/pi/WRO2026-neutrinos-electronicos/code
+ExecStart=/home/pi/WRO2026-neutrinos-electronicos/code/scripts/start_robot.sh
 Restart=always
 RestartSec=10
 
