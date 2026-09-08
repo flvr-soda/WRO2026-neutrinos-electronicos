@@ -144,6 +144,7 @@ class UltrasonicSensor:
 
     def leer_distancia_cm(self) -> float:
         if not self.trigger or not self.echo:
+            logger.debug("Ultrasónico no inicializado, retornando -1.0")
             return -1.0
 
         try:
@@ -159,10 +160,18 @@ class UltrasonicSensor:
             while not self.echo.is_active and time.monotonic() < timeout:
                 pass
             
+            if time.monotonic() >= timeout:
+                logger.debug("Timeout esperando echo HIGH")
+                return -1.0
+            
             pulse_start = time.monotonic()
             
             while self.echo.is_active and time.monotonic() < timeout:
                 pass
+            
+            if time.monotonic() >= timeout:
+                logger.debug("Timeout esperando echo LOW")
+                return -1.0
             
             pulse_end = time.monotonic()
             
@@ -210,8 +219,10 @@ class ServoScanner:
                 min_pulse_width=0.0005,
                 max_pulse_width=0.0025
             )
-            self.centrar()
-            logger.info(f"Servo Scanner inicializado en GPIO {self.pin}")
+            # Centrar con delay más largo para asegurar posición inicial
+            self.servo.angle = self.angulo_centro
+            time.sleep(1.0)  # Delay más largo para asegurar centrado
+            logger.info(f"Servo Scanner inicializado en GPIO {self.pin}, centrado a {self.angulo_centro}°")
         except Exception as e:
             logger.warning(f"Error inicializando servo scanner: {e}")
             self.servo = None
