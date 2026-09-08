@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Activar entorno virtual compartido
-if [ -d "../env" ]; then
-    source ../env/bin/activate
+if [ -d "../../env" ]; then
+    source ../../env/bin/activate
     echo "Entorno virtual compartido activado"
 else
     echo "ERROR: No se encontró el directorio env/"
