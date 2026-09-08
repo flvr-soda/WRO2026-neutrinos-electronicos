@@ -17,7 +17,11 @@ import struct
 import serial
 import logging
 import argparse
+import os
 from typing import Optional, Tuple
+
+# Forzar uso de RPi.GPIO en lugar de pigpio
+os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
 
 # ==============================================================================
 # IMPORTS CONDICIONALES DE HARDWARE

@@ -17,6 +17,10 @@ import glob
 import struct
 import serial
 import logging
+import os
+
+# Forzar uso de RPi.GPIO en lugar de pigpio
+os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
 
 try:
     from gpiozero import Button
