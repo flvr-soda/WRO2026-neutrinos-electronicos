@@ -63,8 +63,8 @@ VELOCIDAD_GIRO = 45       # Velocidad durante el viraje en esquina
 
 # Ángulos del servo de dirección del carro (valores Arduino)
 ANGULO_DIRECCION_RECTO = 90
-ANGULO_GIRO_DERECHA = 50   # Ángulo para girar a la derecha
-ANGULO_GIRO_IZQUIERDA = 130 # Ángulo para girar a la izquierda
+ANGULO_GIRO_DERECHA = 70   # Ángulo para girar a la derecha (ajustado)
+ANGULO_GIRO_IZQUIERDA = 110 # Ángulo para girar a la izquierda (ajustado)
 
 # Umbrales de distancia ultrasónico (en cm)
 DISTANCIA_GIRO_CM = 75.0      # Distancia a la pared frontal para iniciar el giro
@@ -211,7 +211,7 @@ class ServoScanner:
             )
             # Centrar con delay más largo para asegurar posición inicial
             self.servo.angle = self.angulo_centro
-            time.sleep(1.0)  # Delay más largo para asegurar centrado
+            time.sleep(2.0)  # Delay más largo para asegurar centrado
             logger.info(f"Servo Scanner inicializado en GPIO {self.pin}, centrado a {self.angulo_centro}°")
         except Exception as e:
             logger.warning(f"Error inicializando servo scanner: {e}")
