@@ -299,10 +299,11 @@ class EmergencyUltrasonicRunner:
         # Inicializar Botón de Inicio físico (GPIO 17)
         if Button is not None:
             try:
-                self.boton = Button(PIN_BOTON_INICIO, pull_up=True)
+                self.boton = Button(PIN_BOTON_INICIO, pull_up=True, bounce_time=0.1)
                 logger.info(f"Pulsador de retención configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar pulsador de retención en GPIO {PIN_BOTON_INICIO}: {e}")
+                logger.warning("El sistema funcionará sin botón físico (requiere ENTER para iniciar)")
                 self.boton = None
 
         self.esquinas_completadas = 0
