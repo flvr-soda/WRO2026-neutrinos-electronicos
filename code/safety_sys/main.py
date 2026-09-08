@@ -17,11 +17,7 @@ import struct
 import serial
 import logging
 import argparse
-import os
 from typing import Optional, Tuple
-
-# Configurar pin factory pigpio para eliminar jitter del servo
-os.environ['GPIOZERO_PIN_FACTORY'] = 'pigpio'
 
 # ==============================================================================
 # IMPORTS CONDICIONALES DE HARDWARE
@@ -478,12 +474,12 @@ class SafetyRunner:
         
         # 1. Medir a la DERECHA
         self.servo_scanner.mover(ANGULO_SERVO_DERECHA)
-        time.sleep(0.18)
+        time.sleep(0.4)
         dist_der = self.ultrasonido.medir_promedio(muestras=3)
         
         # 2. Medir a la IZQUIERDA
         self.servo_scanner.mover(ANGULO_SERVO_IZQUIERDA)
-        time.sleep(0.18)
+        time.sleep(0.4)
         dist_izq = self.ultrasonido.medir_promedio(muestras=3)
         
         # 3. Volver de inmediato al centro

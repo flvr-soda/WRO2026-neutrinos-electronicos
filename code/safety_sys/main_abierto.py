@@ -17,10 +17,6 @@ import glob
 import struct
 import serial
 import logging
-import os
-
-# Configurar pin factory pigpio para eliminar jitter del servo
-os.environ['GPIOZERO_PIN_FACTORY'] = 'pigpio'
 
 try:
     from gpiozero import Button
