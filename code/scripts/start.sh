@@ -34,7 +34,7 @@ case "$1" in
     safety)
         echo "Iniciando sistema alternativo (modo dinámico)..."
         cd safety_sys
-        python3 main.py
+        python3 main_abierto.py
         ;;
     *)
         echo "ERROR: Parámetro no válido. Use 'robot' o 'safety'"

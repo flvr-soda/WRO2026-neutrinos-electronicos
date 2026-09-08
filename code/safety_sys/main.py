@@ -166,16 +166,15 @@ class LidarServoDriver:
 
 
 # ==============================================================================
-# 2. DRIVER SERIAL TF-LUNA LIDAR (UART /dev/serial0)
+# 2. DRIVER SERIAL TF-LUNA LIDAR DIRECTO (UART /dev/serial0)
 # ==============================================================================
 
-class LidarUartDriver:
-    """Lee y decodifica tramas de 9 bytes del LiDAR TF-Luna con validación de Checksum."""
+class DirectLidar:
+    """Manejo serial directo y de baja latencia del sensor TF-Luna (basado en script funcional)."""
     def __init__(self, port: str = PUERTO_LIDAR, baudrate: int = BAUD_LIDAR):
         self.port = port
         self.baudrate = baudrate
         self.conn = None
-        self._buffer = bytearray()
         self.ultima_distancia = 300.0
         self.ultima_fuerza = 0
         self.timestamp_ultima_lectura = 0.0
@@ -184,56 +183,41 @@ class LidarUartDriver:
     def conectar(self):
         try:
             self.conn = serial.Serial(self.port, self.baudrate, timeout=0.02)
-            self._buffer.clear()
             logger.info(f"[LiDAR UART] ✓ Conectado en {self.port} a {self.baudrate} bps")
         except Exception as e:
             logger.error(f"[LiDAR UART] ✗ Error al conectar en {self.port}: {e}")
             self.conn = None
 
     def leer_distancia_cm(self) -> float:
-        """Extrae la trama TF-Luna más reciente válida."""
+        """
+        Lee el buffer serial y parsea la trama estándar de 9 bytes del TF-Luna.
+        Cabecera: 0x59 0x59
+        Retorna la distancia en cm o -1.0 si no hay lectura válida.
+        """
         if not self.conn or not self.conn.is_open:
             return -1.0
 
         try:
-            esperando = self.conn.in_waiting
-            if esperando > 0:
-                self._buffer.extend(self.conn.read(esperando))
-                if len(self._buffer) > 512:
-                    self._buffer = self._buffer[-128:]
-
-            dist_valida = -1.0
-            while len(self._buffer) >= 9:
-                if self._buffer[0] == 0x59 and self._buffer[1] == 0x59:
-                    frame = bytes(self._buffer[:9])
-                    chk_calc = sum(frame[:8]) & 0xFF
-                    chk_recv = frame[8]
-
-                    if chk_calc == chk_recv:
-                        dist_cm = struct.unpack('<H', frame[2:4])[0]
-                        fuerza = struct.unpack('<H', frame[4:6])[0]
-
-                        if 2 <= dist_cm <= 1200 and fuerza > 30:
-                            dist_valida = float(dist_cm)
-                            self.ultima_distancia = dist_valida
-                            self.ultima_fuerza = fuerza
-                            self.timestamp_ultima_lectura = time.monotonic()
-
-                        del self._buffer[:9]
-                    else:
-                        del self._buffer[:1]
-                else:
-                    try:
-                        next_idx = self._buffer.index(0x59, 1)
-                        del self._buffer[:next_idx]
-                    except ValueError:
-                        self._buffer.clear()
-
-            return dist_valida
-
+            bytes_esperando = self.conn.in_waiting
+            if bytes_esperando >= 9:
+                data = self.conn.read(bytes_esperando)
+                # Recorrer desde el final hacia el principio para obtener la lectura más reciente
+                for i in range(len(data) - 8 - 1, -1, -1):
+                    if data[i] == 0x59 and data[i+1] == 0x59:
+                        frame = data[i:i+9]
+                        if len(frame) == 9:
+                            dist_cm = struct.unpack('<H', frame[2:4])[0]
+                            calidad = frame[1]
+                            # Calidad > 15 asegura señal real (0 = sin señal, no válido)
+                            if dist_cm > 0 and calidad > 15:
+                                self.ultima_distancia = float(dist_cm)
+                                self.ultima_fuerza = calidad
+                                self.timestamp_ultima_lectura = time.monotonic()
+                                return float(dist_cm)
         except Exception as e:
             logger.debug(f"[LiDAR UART] Error en lectura: {e}")
-            return -1.0
+
+        return -1.0
 
     def medir_promedio(self, muestras: int = 4, pausa: float = 0.03) -> float:
         """Toma varias lecturas consecutivas y devuelve el promedio de distancias válidas."""
@@ -425,7 +409,7 @@ class SafetyRunner:
 
     def __init__(self):
         logger.info("=== Inicializando Safety System (MVP) ===")
-        self.lidar = LidarUartDriver(PUERTO_LIDAR, BAUD_LIDAR)
+        self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
         self.servo_lidar = LidarServoDriver(PIN_SERVO_LIDAR, ANGULO_SERVO_CENTRO)
         self.arduino = ArduinoDriver(BAUD_ARDUINO)
         self.vision = VisionColorDetector(CAMARA_INDEX)
@@ -717,7 +701,7 @@ def autodiagnostico():
 
     # 2. LiDAR TF-Luna
     print("\n[2/4] Probando sensor LiDAR TF-Luna en /dev/serial0...")
-    lidar = LidarUartDriver()
+    lidar = DirectLidar()
     t0 = time.time()
     lecturas = 0
     while time.time() - t0 < 2.5:
