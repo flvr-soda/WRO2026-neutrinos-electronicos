@@ -431,23 +431,24 @@ class SafetyUltrasonico:
         return False
 
     def esperar_inicio(self):
-        """Espera activación del botón - requiere cambio de estado."""
+        """Espera activación del botón."""
         logger.info("==================================================")
-        logger.info("[STANDBY] Esperando activación del botón...")
+        logger.info("[STANDBY] Esperando a que se RESIONE el botón...")
         
         if self.boton is not None:
-            self.boton_estado_anterior = self.boton.is_pressed
-            logger.info(f"Estado inicial: {'ON' if not self.boton.is_pressed else 'OFF'}")
-            logger.info("Esperando cambio de estado del botón...")
+            # Espera bloqueante hasta que se presione físicamente
+            self.boton.wait_for_press()
+            logger.info("¡Botón presionado! Suelte el botón para iniciar...")
             
-            while True:
-                boton_estado_actual = self.boton.is_pressed
-                if boton_estado_actual != self.boton_estado_anterior:
-                    logger.info(f"¡Botón cambiado de estado! Nuevo estado: {'ON' if not boton_estado_actual else 'OFF'}. Arrancando en 0.5s...")
-                    time.sleep(0.5)
-                    self.boton_estado_anterior = boton_estado_actual
-                    return True
-                time.sleep(0.05)
+            # Espera a que el usuario levante el dedo para no arrastrar el estado a la carrera
+            self.boton.wait_for_release()
+            
+            logger.info("Arrancando en 0.5s...")
+            time.sleep(0.5)
+            
+            # Inicializamos el estado anterior como "No presionado" (False)
+            self.boton_estado_anterior = False 
+            return True
         else:
             logger.info("Botón no disponible. Presione ENTER...")
             input()
@@ -470,14 +471,21 @@ class SafetyUltrasonico:
             while self.esquinas_completadas < TOTAL_ESQUINAS:
                 ahora = time.monotonic()
                 
-                # Verificar cambio de estado del botón (parar/reiniciar carrera)
+                # Verificar si el botón se PRESIONA nuevamente (pasa de False a True)
                 if self.boton is not None:
                     boton_estado_actual = self.boton.is_pressed
-                    if boton_estado_actual != self.boton_estado_anterior:
-                        logger.info("[STOP] Botón cambiado de estado - Deteniendo carrera")
+                    
+                    # Solo actúa si se presiona el botón (True) y antes no lo estaba (False)
+                    if boton_estado_actual == True and self.boton_estado_anterior == False:
+                        logger.info("[STOP] Botón presionado - Deteniendo carrera")
                         self.arduino.frenar()
+                        
+                        # Esperar a que el usuario suelte el botón
+                        self.boton.wait_for_release()
+                        
                         logger.info("[REINICIO] Reiniciando carrera...")
                         time.sleep(1.0)
+                        
                         # Reiniciar estado
                         self.esquinas_completadas = 0
                         self.sentido_giro = None
@@ -486,12 +494,14 @@ class SafetyUltrasonico:
                         self.tiempo_ultima_esquina = 0.0
                         self.en_esquiva = False
                         self.color_detectado = None
-                        self.boton_estado_anterior = boton_estado_actual
+                        self.boton_estado_anterior = False # Dejar limpio para el siguiente ciclo
                         primera_esquina = True
+                        
                         logger.info("[REINICIO] Carrera reiniciada. Continuando...")
                         self.servo_scanner.centrar()
                         self.arduino.enviar(VELOCIDAD_RECTA, ANGULO_RECTO)
                         continue
+                        
                     self.boton_estado_anterior = boton_estado_actual
                 
                 # Leer distancia frontal
