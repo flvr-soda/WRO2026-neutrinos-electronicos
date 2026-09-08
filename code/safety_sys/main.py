@@ -118,60 +118,54 @@ class ManualButton:
             except Exception:
                 pass
 
-# DRIVER SENSOR ULTRASÓNICO HC-SR04
+# DRIVER SENSOR ULTRASÓNICO HC-SR04 (RPi.GPIO directo)
 class UltrasonicSensor:
-    """Driver para sensor ultrasónico HC-SR04."""
+    """Driver para sensor ultrasónico HC-SR04 usando RPi.GPIO directo."""
     def __init__(self, trigger_pin=PIN_ULTRASONICO_TRIGGER, echo_pin=PIN_ULTRASONICO_ECHO):
         self.trigger_pin = trigger_pin
         self.echo_pin = echo_pin
-        self.trigger = None
-        self.echo = None
         self.ultima_distancia = 300.0
         self._inicializar()
 
     def _inicializar(self):
-        if DigitalOutputDevice is None or InputDevice is None:
-            logger.warning("gpiozero no disponible para ultrasónico")
+        if GPIO is None:
+            logger.warning("RPi.GPIO no disponible para ultrasónico")
             return
         try:
-            self.trigger = DigitalOutputDevice(self.trigger_pin)
-            self.echo = InputDevice(self.echo_pin)
+            GPIO.setup(self.trigger_pin, GPIO.OUT)
+            GPIO.setup(self.echo_pin, GPIO.IN)
+            GPIO.output(self.trigger_pin, GPIO.LOW)
+            time.sleep(0.1)  # Estabilizar
             logger.info(f"Ultrasónico HC-SR04 inicializado TRIGGER={self.trigger_pin}, ECHO={self.echo_pin}")
         except Exception as e:
             logger.warning(f"Error inicializando ultrasónico: {e}")
-            self.trigger = None
-            self.echo = None
 
     def leer_distancia_cm(self) -> float:
-        if not self.trigger or not self.echo:
-            logger.debug("Ultrasónico no inicializado, retornando -1.0")
+        if GPIO is None:
+            logger.debug("RPi.GPIO no disponible, retornando -1.0")
             return -1.0
 
         try:
-            self.trigger.off()
+            # Enviar pulso trigger
+            GPIO.output(self.trigger_pin, GPIO.HIGH)
             time.sleep(0.00001)
-            self.trigger.on()
-            time.sleep(0.00001)
-            self.trigger.off()
+            GPIO.output(self.trigger_pin, GPIO.LOW)
 
-            start_time = time.monotonic()
-            timeout = start_time + 0.04
-            
-            while not self.echo.is_active and time.monotonic() < timeout:
-                pass
-            
-            if time.monotonic() >= timeout:
-                logger.debug("Timeout esperando echo HIGH")
-                return -1.0
+            # Esperar echo HIGH con timeout
+            timeout = time.monotonic() + 0.04
+            while GPIO.input(self.echo_pin) == GPIO.LOW:
+                if time.monotonic() > timeout:
+                    logger.debug("Timeout esperando echo HIGH")
+                    return -1.0
             
             pulse_start = time.monotonic()
             
-            while self.echo.is_active and time.monotonic() < timeout:
-                pass
-            
-            if time.monotonic() >= timeout:
-                logger.debug("Timeout esperando echo LOW")
-                return -1.0
+            # Esperar echo LOW con timeout
+            timeout = time.monotonic() + 0.04
+            while GPIO.input(self.echo_pin) == GPIO.HIGH:
+                if time.monotonic() > timeout:
+                    logger.debug("Timeout esperando echo LOW")
+                    return -1.0
             
             pulse_end = time.monotonic()
             
@@ -181,22 +175,16 @@ class UltrasonicSensor:
             if 2.0 <= distancia <= 400.0:
                 self.ultima_distancia = distancia
                 return distancia
+            else:
+                logger.debug(f"Distancia fuera de rango: {distancia:.1f} cm")
+                return -1.0
         except Exception as e:
             logger.debug(f"Error leyendo ultrasónico: {e}")
-
-        return -1.0
+            return -1.0
 
     def cerrar(self):
-        if self.trigger:
-            try:
-                self.trigger.close()
-            except Exception:
-                pass
-        if self.echo:
-            try:
-                self.echo.close()
-            except Exception:
-                pass
+        # No requiere cleanup con RPi.GPIO directo
+        pass
 
 # DRIVER SERVO PARA PANEO DE ULTRASÓNICO
 class ServoScanner:
