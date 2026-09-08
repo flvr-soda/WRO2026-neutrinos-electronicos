@@ -259,9 +259,10 @@ class ArduinoDriver:
         if self.conn and self.conn.is_open:
             try:
                 comando = f"{velocidad},{angulo}\n"
+                logger.info(f"[Arduino] Enviando: {comando.strip()}")
                 self.conn.write(comando.encode())
             except Exception as e:
-                logger.debug(f"[Arduino] Error enviando: {e}")
+                logger.warning(f"[Arduino] Error enviando: {e}")
 
     def frenar(self):
         self.enviar(0, ANGULO_RECTO)
@@ -430,24 +431,21 @@ class SafetyUltrasonico:
         return False
 
     def esperar_inicio(self):
-        """Espera activación del botón."""
+        """Espera activación del botón - requiere cambio de estado."""
         logger.info("==================================================")
         logger.info("[STANDBY] Esperando activación del botón...")
         
         if self.boton is not None:
             self.boton_estado_anterior = self.boton.is_pressed
             logger.info(f"Estado inicial: {'ON' if not self.boton.is_pressed else 'OFF'}")
-            if not self.boton.is_pressed:
-                logger.info("Botón ya está ON. Arrancando en 0.5s...")
-                time.sleep(0.5)
-                return True
+            logger.info("Esperando cambio de estado del botón...")
             
-            logger.info("Esperando cambio a ON...")
             while True:
-                if not self.boton.is_pressed:
-                    logger.info("¡Botón activado! Arrancando en 0.5s...")
+                boton_estado_actual = self.boton.is_pressed
+                if boton_estado_actual != self.boton_estado_anterior:
+                    logger.info(f"¡Botón cambiado de estado! Nuevo estado: {'ON' if not boton_estado_actual else 'OFF'}. Arrancando en 0.5s...")
                     time.sleep(0.5)
-                    self.boton_estado_anterior = self.boton.is_pressed
+                    self.boton_estado_anterior = boton_estado_actual
                     return True
                 time.sleep(0.05)
         else:
