@@ -18,6 +18,7 @@ import serial
 import logging
 import os
 import sys
+import glob
 
 # Configurar pin factory RPi.GPIO
 os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
