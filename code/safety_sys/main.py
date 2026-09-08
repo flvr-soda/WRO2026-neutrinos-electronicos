@@ -1,832 +1,783 @@
 #!/usr/bin/env python3
 """
-SISTEMA ALTERNATIVO WRO - Modo Dinámico Unidireccional
-Objetivo: Completar 3 vueltas (12 esquinas) al circuito en el menor tiempo posible.
+SISTEMA DE SEGURIDAD Y NAVEGACIÓN ALTERNATIVO (SAFETY SYSTEM MVP) - WRO 2026
+Vehículo: Terreneitor | Categoría: Future Engineers
 
-Comportamiento dinámico:
-1. Inicia siempre en modo abierto (recta → giro en esquina)
-2. Cámara siempre activa buscando colores rojo/verde/morado
-3. Al detectar cualquier color, cambia permanentemente a modo obstáculos
-4. Una vez en obstáculos, se mantiene hasta completar la carrera
-5. Sentido de giro configurable (horario/antihorario) mediante constante SENTIDO_GIRO
-
-Protocolo WRO:
-1. Encendido: Inicializa sensores y queda en modo STANDBY.
-2. Pulsador de retención: Al cambiar el estado del switch físico (GPIO 17), arranca la carrera.
-3. Carrera: Avanza y adapta comportamiento según detección de colores.
-4. Finalización: Completa 12 esquinas (3 vueltas), frena y se detiene.
+Comportamiento Dinámico Requerido:
+1. Inicia siempre en MODO ABIERTO (reto abierto: navegación por rectas y esquinas).
+2. Cámara activa buscando pilares rojo/verde. Al detectar un pilar, cambia a MODO OBSTÁCULOS permanentemente.
+3. Auto-detección inteligente del sentido de giro de la pista (Horario / Antihorario) usando el servo SG90 y LiDAR en la primera esquina.
+4. Maniobras de esquiva Ackermann en dos fases (evasión + contra-giro de enderezado).
 """
 
+import sys
 import time
 import glob
 import struct
 import serial
 import logging
-import threading
-from collections import deque
-from dataclasses import dataclass
-from typing import Optional
+import argparse
+from typing import Optional, Tuple
 
+# ==============================================================================
+# IMPORTS CONDICIONALES DE HARDWARE
+# ==============================================================================
 try:
     import numpy as np
-    NUMPY_AVAILABLE = True
-except ImportError:
-    NUMPY_AVAILABLE = False
-    np = None
-
-try:
     import cv2
-    OPENCV_AVAILABLE = True
+    VISION_DISPONIBLE = True
 except ImportError:
-    OPENCV_AVAILABLE = False
+    np = None
     cv2 = None
+    VISION_DISPONIBLE = False
 
 try:
-    from gpiozero import Button
+    from gpiozero import Button, AngularServo
+    GPIO_DISPONIBLE = True
 except ImportError:
     Button = None
+    AngularServo = None
+    GPIO_DISPONIBLE = False
 
 # ==============================================================================
-# CONFIGURACIÓN (CONSTANTES)
+# PARÁMETROS Y CONSTANTES DE COMPETICIÓN
 # ==============================================================================
 
-# Hardware
-PIN_BOTON_INICIO = 17
+# Pines GPIO (Raspberry Pi BCM)
+PIN_BOTON_INICIO = 17       # Switch de retención físico (Pin físico 11)
+PIN_SERVO_LIDAR = 18        # Servo SG90 LiDAR (Pin físico 12)
+ANGULO_SERVO_CENTRO = 90    # 90° = Centrado frontal
+ANGULO_SERVO_DERECHA = 40   # Vista lateral derecha para autodetección
+ANGULO_SERVO_IZQUIERDA = 140 # Vista lateral izquierda para autodetección
 
-# Conexiones seriales
+# Puertos Seriales y Velocidades
 PUERTO_LIDAR = "/dev/serial0"
 BAUD_LIDAR = 115200
 BAUD_ARDUINO = 115200
 
-# Parámetros de navegación
+# Meta de Carrera
 VUELTAS_OBJETIVO = 3
 ESQUINAS_POR_VUELTA = 4
 TOTAL_ESQUINAS = VUELTAS_OBJETIVO * ESQUINAS_POR_VUELTA
 FRECUENCIA_CONTROL_HZ = 40
 
 # Velocidades (-100 a 100)
-VELOCIDAD_CRUCERO = 65
-VELOCIDAD_GIRO = 35
-VELOCIDAD_ESQUIVA = 30
+VEL_CRUCERO = 60
+VEL_GIRO = 35
+VEL_ESQUIVA = 30
 
-# Ángulos del servo de dirección del carro (valores Arduino)
-ANGULO_DIRECCION_RECTO = 135
-ANGULO_GIRO_DERECHA = 0
-ANGULO_GIRO_IZQUIERDA = 270
+# Ángulos Servo Dirección Arduino (Rango 0 - 270°)
+ANG_RECTO = 135
+ANG_DERECHA = 0
+ANG_IZQUIERDA = 270
 
-# Sentido de giro de la pista
-SENTIDO_GIRO = "derecha"  # "derecha" para horario, "izquierda" para antihorario
+# Modos de Competición
+MODO_ABIERTO = "ABIERTO"
+MODO_OBSTACULOS = "OBSTACULOS"
 
-# Determinar ángulo de giro según sentido
-if SENTIDO_GIRO == "derecha":
-    ANGULO_GIRO_ESQUINA = ANGULO_GIRO_DERECHA
-else:
-    ANGULO_GIRO_ESQUINA = ANGULO_GIRO_IZQUIERDA
+# Umbrales LiDAR (cm)
+DISTANCIA_ESQUINA_CM = 80.0       # Distancia a pared frontal para iniciar giro
+DISTANCIA_OBSTACULO_CM = 48.0     # Distancia a pilar para iniciar maniobra esquiva
+DISTANCIA_DESPEJADA_CM = 100.0    # Distancia para dar por concluido un giro
 
-# Umbrales de distancia LiDAR (en cm)
-DISTANCIA_GIRO_CM = 85.0
-DISTANCIA_OBSTACULO_CM = 50.0
-DISTANCIA_DESPEJADA_CM = 110.0
+# Tiempos de Control (segundos)
+DURACION_MIN_GIRO = 0.8
+DURACION_MAX_GIRO = 2.2
+COOLDOWN_ESQUINA = 1.3
+DURACION_ESQUIVA_FASE1 = 0.6      # Giro hacia el lado libre
+DURACION_ESQUIVA_FASE2 = 0.6      # Contra-giro para enderezar el chasis
+TIMEOUT_LIDAR_FAILSAFE = 1.5
 
-# Tiempos de control
-DURACION_MAX_GIRO_SEG = 2.0
-DURACION_MIN_GIRO_SEG = 0.8
-TIEMPO_COOLDOWN_ESQUINA_SEG = 1.4
-DURACION_ESQUIVA_SEG = 1.2
-DURACION_MIN_ESQUIVA_SEG = 0.5
-
-# Configuración de cámara USB
-CAMARA_ENABLED = True
+# Configuración Visión / Color HSV
 CAMARA_INDEX = 0
 CAMARA_WIDTH = 640
 CAMARA_HEIGHT = 480
-CAMARA_FPS = 30
-CAMARA_BUFFER_SIZE = 2
+ROI_Y1, ROI_Y2 = 120, 360
+ROI_X1, ROI_X2 = 160, 480
+AREA_MINIMA_COLOR = 600
 
-# Configuración de detección de colores
-COLORES_ENABLED = True
-REGION_INTERES = {'x1': 160, 'y1': 120, 'x2': 480, 'y2': 360}
-AREA_MINIMA = 500
-CONFIANZA_MINIMA = 0.3
+HSV_RANGOS = {
+    'rojo_1': (np.array([0, 100, 50]), np.array([10, 255, 255])) if VISION_DISPONIBLE else None,
+    'rojo_2': (np.array([170, 100, 50]), np.array([180, 255, 255])) if VISION_DISPONIBLE else None,
+    'verde':  (np.array([40, 50, 50]),  np.array([85, 255, 255])) if VISION_DISPONIBLE else None,
+    'morado': (np.array([130, 50, 50]), np.array([160, 255, 255])) if VISION_DISPONIBLE else None,
+}
 
-# Rangos HSV para colores
-COLOR_ROJO = {'h_min': 0, 'h_max': 10, 's_min': 100, 's_max': 255, 'v_min': 50, 'v_max': 255}
-COLOR_VERDE = {'h_min': 40, 'h_max': 80, 's_min': 50, 's_max': 255, 'v_min': 50, 'v_max': 255}
-COLOR_MORADO = {'h_min': 130, 'h_max': 160, 's_min': 50, 's_max': 255, 'v_min': 50, 'v_max': 255}
+# Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger("SAFETY_SYS")
 
-# Estados de navegación
-ESTADO_ABIERTO = "ABIERTO"
-ESTADO_OBSTACULOS = "OBSTACULOS"
-
-# Estados internos para modo obstáculos
-ESTADO_RECTA = "RECTA"
-ESTADO_ESQUIVANDO = "ESQUIVANDO"
-ESTADO_GIRANDO_ESQUINA = "GIRANDO_ESQUINA"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
-)
-logger = logging.getLogger("SAFETY_SYSTEM")
 
 # ==============================================================================
-# CLASES DE CÁMARA Y DETECCIÓN DE COLORES
+# 1. DRIVER SERVO LIDAR SG90 (GPIO 18)
 # ==============================================================================
 
-@dataclass
-class StampedFrame:
-    """Frame con timestamp para sincronización"""
-    data: any  # any en lugar de np.ndarray para evitar error cuando np no está disponible
-    timestamp: float
-    sequence: int
+class LidarServoDriver:
+    """Controla el servo SG90 para mantener el LiDAR alineado al frente o hacer paneos de autodetección."""
+    def __init__(self, pin: int = PIN_SERVO_LIDAR, angulo_centro: int = ANGULO_SERVO_CENTRO):
+        self.pin = pin
+        self.angulo_centro = angulo_centro
+        self.servo = None
+        self._inicializar()
 
-
-class CameraStream:
-    """Streaming de cámara USB con thread separado y buffer limitado."""
-    
-    def __init__(self, buffer_size=CAMARA_BUFFER_SIZE, name="camera"):
-        self.name = name
-        self._buffer = deque(maxlen=buffer_size)
-        self._lock = threading.Lock()
-        self._new_frame = threading.Event()
-        self._running = False
-        self._thread = None
-        self._sequence = 0
-        self._camera = None
-        
-        # Diagnósticos
-        self._capture_times = deque(maxlen=100)
-        self._drop_count = 0
-        
-    def start(self):
-        """Iniciar thread de captura"""
-        if not NUMPY_AVAILABLE:
-            logger.warning("numpy no disponible - cámara deshabilitada")
-            return False
-            
-        if not OPENCV_AVAILABLE:
-            logger.warning("OpenCV no disponible - cámara deshabilitada")
-            return False
-            
-        if not CAMARA_ENABLED:
-            logger.info("Cámara deshabilitada en configuración")
-            return False
-            
+    def _inicializar(self):
+        if not GPIO_DISPONIBLE or AngularServo is None:
+            logger.warning("[Servo LiDAR] gpiozero no disponible - modo simulado")
+            return
         try:
-            # Cámara USB con backend por defecto de OpenCV
-            self._camera = cv2.VideoCapture(CAMARA_INDEX)
-            if not self._camera.isOpened():
-                logger.error(f"No se pudo abrir la cámara USB en índice {CAMARA_INDEX}")
-                return False
-                
-            self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMARA_WIDTH)
-            self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMARA_HEIGHT)
-            self._camera.set(cv2.CAP_PROP_FPS, CAMARA_FPS)
-            
-            self._running = True
-            self._thread = threading.Thread(
-                target=self._capture_loop, daemon=True, name=f"{self.name}_capture")
-            self._thread.start()
-            
-            logger.info(f"Cámara USB iniciada: {CAMARA_WIDTH}x{CAMARA_HEIGHT} @ {CAMARA_FPS} FPS")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error al iniciar cámara con OpenCV: {e}")
-            return False
-    
-    def stop(self):
-        """Detener thread de captura"""
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=2.0)
-        if self._camera:
-            self._camera.release()
-    
-    def _capture_loop(self):
-        """Loop de captura en thread separado"""
-        fallos_consecutivos = 0
-        ultimo_estado_log = "funcionando"  # Para detectar cambios de estado
-        
-        while self._running:
-            t_start = time.monotonic()
-            
-            try:
-                ret, frame = self._camera.read()
-                if not ret or frame is None:
-                    fallos_consecutivos += 1
-                    
-                    # Log solo cuando cambia el estado de funcionando a fallando
-                    if fallos_consecutivos == 5 and ultimo_estado_log == "funcionando":
-                        logger.warning("[CÁMARA] ✗ Cambio de estado: Dejó de recibir frames (5 fallos consecutivos)")
-                        ultimo_estado_log = "fallando"
-                    elif fallos_consecutivos == 20 and ultimo_estado_log == "fallando":
-                        logger.error("[CÁMARA] ✗✗ Problema persistente: 20 fallos consecutivos - cámara可能 desconectada")
-                        ultimo_estado_log = "critico"
-                        
-                    time.sleep(0.01)
-                    continue
-                else:
-                    # Log solo cuando cambia el estado de fallando a funcionando
-                    if fallos_consecutivos > 0 and ultimo_estado_log != "funcionando":
-                        logger.info(f"[CÁMARA] ✓ Recuperación: Volvió a recibir frames después de {fallos_consecutivos} fallos")
-                        ultimo_estado_log = "funcionando"
-                    
-                    fallos_consecutivos = 0  # Resetear contador si lectura exitosa
-                    
-                timestamp = time.monotonic()
-                
-                stamped_frame = StampedFrame(
-                    data=frame,
-                    timestamp=timestamp,
-                    sequence=self._sequence
-                )
-                self._sequence += 1
-                
-                with self._lock:
-                    if len(self._buffer) == self._buffer.maxlen:
-                        self._drop_count += 1
-                    self._buffer.append(stamped_frame)
-                
-                self._new_frame.set()
-                self._capture_times.append(time.monotonic() - t_start)
-                
-            except Exception as e:
-                logger.debug(f"[{self.name}] Error de captura: {e}")
-                time.sleep(0.01)
-    
-    def get_latest(self) -> Optional[StampedFrame]:
-        """Obtener frame más reciente (no bloqueante). Retorna None si está vacío."""
-        with self._lock:
-            if self._buffer:
-                return self._buffer[-1]
-        return None
-
-
-class ColorDetector:
-    """Detector de colores (rojo, verde, morado) para pilar WRO."""
-    
-    def __init__(self):
-        self.enabled = COLORES_ENABLED and OPENCV_AVAILABLE
-        self.roi = REGION_INTERES
-        self.area_min = AREA_MINIMA
-        self.conf_min = CONFIANZA_MINIMA
-        
-        # Definir rangos HSV para cada color
-        self.rangos = {
-            'rojo': (
-                np.array([COLOR_ROJO['h_min'], COLOR_ROJO['s_min'], COLOR_ROJO['v_min']]),
-                np.array([COLOR_ROJO['h_max'], COLOR_ROJO['s_max'], COLOR_ROJO['v_max']])
-            ),
-            'verde': (
-                np.array([COLOR_VERDE['h_min'], COLOR_VERDE['s_min'], COLOR_VERDE['v_min']]),
-                np.array([COLOR_VERDE['h_max'], COLOR_VERDE['s_max'], COLOR_VERDE['v_max']])
-            ),
-            'morado': (
-                np.array([COLOR_MORADO['h_min'], COLOR_MORADO['s_min'], COLOR_MORADO['v_min']]),
-                np.array([COLOR_MORADO['h_max'], COLOR_MORADO['s_max'], COLOR_MORADO['v_max']])
+            self.servo = AngularServo(
+                self.pin,
+                min_angle=0,
+                max_angle=180,
+                min_pulse_width=0.0005,
+                max_pulse_width=0.0025,
+                initial_angle=self.angulo_centro
             )
-        }
-        
-        # Para el rojo también agregamos el rango alto (170-180)
-        self.rangos_rojo_extendido = (
-            np.array([170, COLOR_ROJO['s_min'], COLOR_ROJO['v_min']]),
-            np.array([180, COLOR_ROJO['s_max'], COLOR_ROJO['v_max']])
-        )
-        
-        if not self.enabled:
-            logger.warning("Detector de colores deshabilitado (configuración o OpenCV no disponible)")
-        else:
-            logger.info("Detector de colores inicializado: rojo, verde, morado")
-    
-    def detectar(self, frame: np.ndarray) -> Optional[str]:
-        """Detectar el color predominante en la región de interés."""
-        if not self.enabled or frame is None:
-            return None
-            
-        try:
-            # Extraer región de interés
-            h, w = frame.shape[:2]
-            x1 = max(0, min(w, self.roi['x1']))
-            y1 = max(0, min(h, self.roi['y1']))
-            x2 = max(0, min(w, self.roi['x2']))
-            y2 = max(0, min(h, self.roi['y2']))
-            
-            roi = frame[y1:y2, x1:x2]
-            if roi.size == 0:
-                return None
-            
-            # Convertir a HSV
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            
-            # Detectar cada color
-            mejor_color = None
-            mejor_confianza = 0
-            
-            for nombre, (rango_bajo, rango_alto) in self.rangos.items():
-                # Crear máscara
-                mask = cv2.inRange(hsv, rango_bajo, rango_alto)
-                
-                # Para el rojo, también verificar el rango extendido
-                if nombre == 'rojo':
-                    mask_extendida = cv2.inRange(hsv, self.rangos_rojo_extendido[0], self.rangos_rojo_extendido[1])
-                    mask = cv2.bitwise_or(mask, mask_extendida)
-                
-                # Calcular área y confianza
-                area = cv2.countNonZero(mask)
-                total_pixels = roi.shape[0] * roi.shape[1]
-                confianza = area / total_pixels if total_pixels > 0 else 0
-                
-                # Filtrar por área mínima
-                if area >= self.area_min and confianza >= self.conf_min:
-                    if confianza > mejor_confianza:
-                        mejor_confianza = confianza
-                        mejor_color = nombre
-            
-            return mejor_color
-            
+            logger.info(f"[Servo LiDAR] ✓ Inicializado en GPIO {self.pin} (Centro: {self.angulo_centro}°)")
         except Exception as e:
-            logger.debug(f"Error en detección de color: {e}")
-            return None
+            logger.warning(f"[Servo LiDAR] Error al inicializar en GPIO {self.pin}: {e}")
+            self.servo = None
+
+    def centrar(self):
+        self.mover(self.angulo_centro)
+
+    def mover(self, angulo: float):
+        if self.servo:
+            try:
+                self.servo.angle = max(0.0, min(180.0, float(angulo)))
+            except Exception as e:
+                logger.debug(f"[Servo LiDAR] Error moviendo servo: {e}")
+
+    def test_movimiento(self):
+        logger.info("[Servo LiDAR] Probando movimiento (45° -> 135° -> 90°)...")
+        for ang in [45, 135, 90]:
+            self.mover(ang)
+            time.sleep(0.3)
+
+    def cerrar(self):
+        if self.servo:
+            try:
+                self.centrar()
+                time.sleep(0.05)
+                self.servo.close()
+            except Exception:
+                pass
+            self.servo = None
+
 
 # ==============================================================================
-# DRIVER SERIAL TF-LUNA LIDAR DIRECTO (SIN SERVO)
+# 2. DRIVER SERIAL TF-LUNA LIDAR (UART /dev/serial0)
 # ==============================================================================
 
-class DirectLidar:
-    """Manejo serial directo del sensor TF-Luna sin servo (estático al frente)."""
-    def __init__(self, port=PUERTO_LIDAR, baudrate=BAUD_LIDAR):
+class LidarUartDriver:
+    """Lee y decodifica tramas de 9 bytes del LiDAR TF-Luna con validación de Checksum."""
+    def __init__(self, port: str = PUERTO_LIDAR, baudrate: int = BAUD_LIDAR):
         self.port = port
         self.baudrate = baudrate
         self.conn = None
+        self._buffer = bytearray()
+        self.ultima_distancia = 300.0
+        self.ultima_fuerza = 0
+        self.timestamp_ultima_lectura = 0.0
         self.conectar()
 
     def conectar(self):
         try:
-            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
-            logger.info(f"LiDAR TF-Luna conectado en {self.port}")
+            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.02)
+            self._buffer.clear()
+            logger.info(f"[LiDAR UART] ✓ Conectado en {self.port} a {self.baudrate} bps")
         except Exception as e:
-            logger.error(f"Error al abrir puerto LiDAR {self.port}: {e}")
+            logger.error(f"[LiDAR UART] ✗ Error al conectar en {self.port}: {e}")
             self.conn = None
 
     def leer_distancia_cm(self) -> float:
-        """
-        Lee el buffer serial y parsea la trama de 9 bytes del TF-Luna.
-        Cabecera: 0x59 0x59
-        Retorna la distancia en cm o -1.0 si no hay lectura válida.
-        """
+        """Extrae la trama TF-Luna más reciente válida."""
         if not self.conn or not self.conn.is_open:
             return -1.0
 
         try:
-            bytes_esperando = self.conn.in_waiting
-            if bytes_esperando >= 9:
-                data = self.conn.read(bytes_esperando)
-                # Buscar cabecera 0x59 0x59 de forma más robusta
-                for i in range(len(data) - 8):
-                    if data[i] == 0x59 and data[i+1] == 0x59:
-                        frame = data[i:i+9]
-                        if len(frame) == 9:
-                            dist_cm = struct.unpack('<H', frame[2:4])[0]
-                            calidad = frame[5]
-                            logger.debug(f"[LiDAR] Raw: {dist_cm}cm, Calidad: {calidad}")
-                            if dist_cm > 0 and calidad > 10:
-                                return float(dist_cm)
-        except Exception as e:
-            logger.debug(f"Error al leer trama LiDAR: {e}")
+            esperando = self.conn.in_waiting
+            if esperando > 0:
+                self._buffer.extend(self.conn.read(esperando))
+                if len(self._buffer) > 512:
+                    self._buffer = self._buffer[-128:]
 
-        return -1.0
+            dist_valida = -1.0
+            while len(self._buffer) >= 9:
+                if self._buffer[0] == 0x59 and self._buffer[1] == 0x59:
+                    frame = bytes(self._buffer[:9])
+                    chk_calc = sum(frame[:8]) & 0xFF
+                    chk_recv = frame[8]
+
+                    if chk_calc == chk_recv:
+                        dist_cm = struct.unpack('<H', frame[2:4])[0]
+                        fuerza = struct.unpack('<H', frame[4:6])[0]
+
+                        if 2 <= dist_cm <= 1200 and fuerza > 30:
+                            dist_valida = float(dist_cm)
+                            self.ultima_distancia = dist_valida
+                            self.ultima_fuerza = fuerza
+                            self.timestamp_ultima_lectura = time.monotonic()
+
+                        del self._buffer[:9]
+                    else:
+                        del self._buffer[:1]
+                else:
+                    try:
+                        next_idx = self._buffer.index(0x59, 1)
+                        del self._buffer[:next_idx]
+                    except ValueError:
+                        self._buffer.clear()
+
+            return dist_valida
+
+        except Exception as e:
+            logger.debug(f"[LiDAR UART] Error en lectura: {e}")
+            return -1.0
+
+    def medir_promedio(self, muestras: int = 4, pausa: float = 0.03) -> float:
+        """Toma varias lecturas consecutivas y devuelve el promedio de distancias válidas."""
+        lecturas = []
+        for _ in range(muestras):
+            d = self.leer_distancia_cm()
+            if d > 0:
+                lecturas.append(d)
+            time.sleep(pausa)
+        return float(np.mean(lecturas)) if (lecturas and np is not None) else (sum(lecturas)/len(lecturas) if lecturas else -1.0)
 
     def cerrar(self):
         if self.conn and self.conn.is_open:
-            self.conn.close()
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+
 
 # ==============================================================================
-# DRIVER SERIAL ARDUINO DIRECTO
+# 3. DRIVER SERIAL ARDUINO UNO (COMUNICACIÓN NO BLOQUEANTE)
 # ==============================================================================
 
-class DirectArduino:
-    """Envío directo de consignas de velocidad y ángulo al Arduino."""
-    def __init__(self, baudrate=BAUD_ARDUINO):
+class ArduinoDriver:
+    """Envío y recepción de consignas de dirección y tracción con Arduino UNO."""
+    def __init__(self, baudrate: int = BAUD_ARDUINO):
         self.baudrate = baudrate
         self.conn = None
         self.port = self._buscar_puerto()
-        self.ultimo_warning_conexion = 0.0
+        self._ultimo_warning = 0.0
         self.conectar()
 
-    def _buscar_puerto(self):
-        patrones = ['/dev/ttyUSB*', '/dev/ttyACM*']
-        for p in patrones:
-            puertos = glob.glob(p)
+    def _buscar_puerto(self) -> Optional[str]:
+        for pattern in ['/dev/ttyUSB*', '/dev/ttyACM*']:
+            puertos = glob.glob(pattern)
             if puertos:
                 return puertos[0]
         return None
 
     def conectar(self):
         if not self.port:
-            logger.warning("No se encontró puerto Arduino automáticamente.")
+            logger.warning("[Arduino] No se detectó puerto USB/ACM disponible")
             return
-
         try:
-            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
-            time.sleep(1.8)
-            logger.info(f"Arduino conectado en {self.port}")
+            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.01, write_timeout=0.05)
+            time.sleep(1.5)
             self.conn.reset_input_buffer()
             self.conn.reset_output_buffer()
+            logger.info(f"[Arduino] ✓ Conectado en {self.port}")
         except Exception as e:
-            logger.error(f"Error conectando a Arduino en {self.port}: {e}")
+            logger.error(f"[Arduino] ✗ Error de conexión en {self.port}: {e}")
             self.conn = None
 
     def enviar(self, velocidad: int, angulo: int):
-        """Envía comando en formato V:<vel>;A:<ang>\n"""
+        """Envía comando V:<vel>;A:<ang>\\n."""
         if not self.conn or not self.conn.is_open:
             ahora = time.monotonic()
-            if ahora - self.ultimo_warning_conexion > 5.0:
-                logger.warning("Arduino no conectado, no se puede enviar comando")
-                self.ultimo_warning_conexion = ahora
+            if ahora - self._ultimo_warning > 4.0:
+                logger.warning("[Arduino] No conectado - Comando no transmitido")
+                self._ultimo_warning = ahora
             return
 
-        velocidad = max(-100, min(100, int(velocidad)))
-        angulo = max(0, min(270, int(angulo)))
-
-        comando = f"V:{velocidad};A:{angulo}\n"
+        v = max(-100, min(100, int(velocidad)))
+        a = max(0, min(270, int(angulo)))
+        cmd = f"V:{v};A:{a}\n".encode('utf-8')
         try:
-            self.conn.write(comando.encode('utf-8'))
+            self.conn.write(cmd)
             self.conn.flush()
         except Exception as e:
-            logger.error(f"Error enviando comando a Arduino: {e}")
+            logger.error(f"[Arduino] Error al escribir comando: {e}")
 
-    def leer_telemetria(self):
-        """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
+    def leer_telemetria_no_bloqueante(self) -> Optional[str]:
         if not self.conn or not self.conn.is_open:
             return None
-
         try:
             if self.conn.in_waiting > 0:
-                linea = self.conn.readline().decode('utf-8', errors='ignore').strip()
-                if linea:
-                    return linea
-        except Exception as e:
-            logger.debug(f"Error leyendo telemetría: {e}")
+                line = self.conn.readline().decode('utf-8', errors='ignore').strip()
+                return line if line else None
+        except Exception:
+            pass
         return None
 
     def frenar(self):
-        self.enviar(0, ANGULO_DIRECCION_RECTO)
+        self.enviar(0, ANG_RECTO)
 
     def cerrar(self):
         if self.conn and self.conn.is_open:
-            self.frenar()
-            self.conn.close()
+            try:
+                self.frenar()
+                time.sleep(0.05)
+                self.conn.close()
+            except Exception:
+                pass
+
 
 # ==============================================================================
-# PROGRAMA PRINCIPAL DE NAVEGACIÓN UNIFICADA
+# 4. SUBSISTEMA DE VISIÓN Y DETECCIÓN DE COLOR
+# ==============================================================================
+
+class VisionColorDetector:
+    """Captura y análisis de color HSV optimizado para cámara USB."""
+    def __init__(self, camera_index: int = CAMARA_INDEX):
+        self.index = camera_index
+        self.cap = None
+        self.disponible = False
+        if VISION_DISPONIBLE:
+            self._inicializar()
+
+    def _inicializar(self):
+        try:
+            self.cap = cv2.VideoCapture(self.index)
+            if self.cap.isOpened():
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMARA_WIDTH)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMARA_HEIGHT)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self.disponible = True
+                logger.info(f"[Cámara] ✓ Iniciada en índice {self.index} ({CAMARA_WIDTH}x{CAMARA_HEIGHT})")
+            else:
+                logger.warning(f"[Cámara] ✗ No se pudo abrir dispositivo en índice {self.index}")
+        except Exception as e:
+            logger.warning(f"[Cámara] Error al iniciar VideoCapture: {e}")
+
+    def detectar_color(self) -> Optional[str]:
+        """Retorna 'rojo', 'verde', 'morado' o None."""
+        if not self.disponible or self.cap is None:
+            return None
+
+        try:
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                return None
+
+            roi = frame[ROI_Y1:ROI_Y2, ROI_X1:ROI_X2]
+            if roi.size == 0:
+                return None
+
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            mejor_color = None
+            max_area = 0
+
+            # 1. Rojo
+            mask_r1 = cv2.inRange(hsv, HSV_RANGOS['rojo_1'][0], HSV_RANGOS['rojo_1'][1])
+            mask_r2 = cv2.inRange(hsv, HSV_RANGOS['rojo_2'][0], HSV_RANGOS['rojo_2'][1])
+            area_rojo = cv2.countNonZero(cv2.bitwise_or(mask_r1, mask_r2))
+            if area_rojo > AREA_MINIMA_COLOR and area_rojo > max_area:
+                max_area = area_rojo
+                mejor_color = 'rojo'
+
+            # 2. Verde
+            mask_v = cv2.inRange(hsv, HSV_RANGOS['verde'][0], HSV_RANGOS['verde'][1])
+            area_verde = cv2.countNonZero(mask_v)
+            if area_verde > AREA_MINIMA_COLOR and area_verde > max_area:
+                max_area = area_verde
+                mejor_color = 'verde'
+
+            # 3. Morado
+            mask_m = cv2.inRange(hsv, HSV_RANGOS['morado'][0], HSV_RANGOS['morado'][1])
+            area_morado = cv2.countNonZero(mask_m)
+            if area_morado > AREA_MINIMA_COLOR and area_morado > max_area:
+                max_area = area_morado
+                mejor_color = 'morado'
+
+            return mejor_color
+
+        except Exception as e:
+            logger.debug(f"[Cámara] Error procesando frame: {e}")
+            return None
+
+    def cerrar(self):
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+
+
+# ==============================================================================
+# 5. CONTROLADOR DE NAVEGACIÓN Y MÁQUINA DE ESTADOS (SAFETY RUNNER)
 # ==============================================================================
 
 class SafetyRunner:
+    """Máquina de Estados WRO con inicio en Reto Abierto, transición dinámica y autodetección de sentido."""
+    
+    # Estados de navegación interna
+    ESTADO_RECTA = "RECTA"
+    ESTADO_GIRO_ESQUINA = "GIRO_ESQUINA"
+    ESTADO_ESQUIVA_FASE1 = "ESQUIVA_FASE1"
+    ESTADO_ESQUIVA_FASE2 = "ESQUIVA_FASE2"
+
     def __init__(self):
-        logger.info("Inicializando componentes del Sistema Alternativo...")
-        self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
-        self.arduino = DirectArduino(BAUD_ARDUINO)
-        self.camera = CameraStream()
-        self.color_detector = ColorDetector()
+        logger.info("=== Inicializando Safety System (MVP) ===")
+        self.lidar = LidarUartDriver(PUERTO_LIDAR, BAUD_LIDAR)
+        self.servo_lidar = LidarServoDriver(PIN_SERVO_LIDAR, ANGULO_SERVO_CENTRO)
+        self.arduino = ArduinoDriver(BAUD_ARDUINO)
+        self.vision = VisionColorDetector(CAMARA_INDEX)
         self.boton = None
 
-        # Inicializar Botón de Inicio físico (GPIO 17)
-        if Button is not None:
+        if GPIO_DISPONIBLE and Button is not None:
             try:
-                self.boton = Button(PIN_BOTON_INICIO, pull_up=True)
-                logger.info(f"Pulsador de retención configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
+                self.boton = Button(PIN_BOTON_INICIO, pull_up=True, bounce_time=0.1)
+                logger.info(f"[Switch] ✓ Pulsador de retención en GPIO {PIN_BOTON_INICIO}")
             except Exception as e:
-                logger.warning(f"No se pudo inicializar pulsador de retención: {e}")
-                self.boton = None
+                logger.warning(f"[Switch] ✗ Error en GPIO {PIN_BOTON_INICIO}: {e}")
 
-        # Estado de navegación (modo dinámico)
-        self.modo_actual = ESTADO_ABIERTO  # Siempre inicia en modo abierto
-        self.color_detectado = None
-        self.transicion_a_obstaculos = False
+        # Modo de Competición (Inicia siempre en ABIERTO)
+        self.modo_competicion = MODO_ABIERTO
+        
+        # Sentido de Giro (Autodetectado en primera esquina)
+        self.sentido_detectado = None
+        self.angulo_giro_esquina = ANG_DERECHA  # Por defecto horario hasta autodetección
 
-        # Variables de navegación compartidas
+        # Variables de Carrera
+        self.estado = self.ESTADO_RECTA
         self.esquinas_completadas = 0
-        self.tiempo_ultima_esquina = 0.0
-        self.ultima_distancia_valida = 300.0
-        self.boton_estado_anterior = None
-        self.ultima_distancia_log = 0.0
-
-        # Variables específicas para modo abierto
-        self.en_giro = False
-        self.tiempo_inicio_giro = 0.0
-
-        # Variables específicas para modo obstáculos
-        self.estado_obstaculos = ESTADO_RECTA
         self.tiempo_inicio_maniobra = 0.0
-        self.angulo_esquiva_activo = ANGULO_DIRECCION_RECTO
+        self.tiempo_ultima_esquina = 0.0
+        self.distancia_actual = 300.0
+        self.tiempo_ultimo_lidar_ok = time.monotonic()
+        self.angulo_esquiva_actual = ANG_RECTO
+        self.angulo_contra_esquiva = ANG_RECTO
 
-        self.camera_iniciada = False
-
-    def esperar_inicio(self):
+    def autodetectar_sentido_giro(self) -> str:
         """
-        Modo STANDBY tras encendido.
-        Espera a que se active el pulsador de retención (toggle switch) físico (Regla WRO 9.11).
+        Usa el servo SG90 para escanear a derecha e izquierda en la primera esquina
+        y determinar si la pista gira en sentido Horario (Derecha) o Antihorario (Izquierda).
         """
-        logger.info("==================================================")
-        logger.info("[STANDBY] Robot encendido y listo en zona de salida.")
+        logger.info("[AUTODETECCIÓN] Escaneando apertura lateral de la pista...")
+        
+        # 1. Medir a la DERECHA
+        self.servo_lidar.mover(ANGULO_SERVO_DERECHA)
+        time.sleep(0.18)
+        dist_der = self.lidar.medir_promedio(muestras=4)
+        
+        # 2. Medir a la IZQUIERDA
+        self.servo_lidar.mover(ANGULO_SERVO_IZQUIERDA)
+        time.sleep(0.18)
+        dist_izq = self.lidar.medir_promedio(muestras=4)
+        
+        # 3. Volver de inmediato al centro
+        self.servo_lidar.centrar()
+        
+        logger.info(f"[AUTODETECCIÓN] Lecturas laterales -> Derecha: {dist_der:.0f}cm | Izquierda: {dist_izq:.0f}cm")
+        
+        # Lado con mayor distancia libre es la dirección de la pista
+        if dist_der >= dist_izq:
+            sentido = "derecha"
+            self.angulo_giro_esquina = ANG_DERECHA
+        else:
+            sentido = "izquierda"
+            self.angulo_giro_esquina = ANG_IZQUIERDA
+            
+        self.sentido_detectado = sentido
+        logger.info(f"[AUTODETECCIÓN] ✓ Sentido confirmado: {sentido.upper()} (Ángulo servo esquina: {self.angulo_giro_esquina}°)")
+        return sentido
 
-        # Iniciar cámara en standby para diagnóstico temprano
-        if not self.camera_iniciada:
-            self.camera_iniciada = self.camera.start()
-            if self.camera_iniciada:
-                # Verificar que la cámara está enviando frames
-                time.sleep(0.5)  # Dar tiempo para que capture algunos frames
-                test_frame = self.camera.get_latest()
-                if test_frame:
-                    logger.info(f"[CÁMARA] ✓ Conectada y operativa - Recibiendo frames (Seq: {test_frame.sequence})")
-                else:
-                    logger.warning("[CÁMARA] ✗ Conectada pero no envía frames - Revisar conexión")
-            else:
-                logger.warning("[CÁMARA] ✗ No disponible - Modo degradado sin detección de colores")
+    def esperar_inicio(self) -> bool:
+        """Modo Standby: Centra servo y espera el switch físico o tecla ENTER."""
+        logger.info("--------------------------------------------------")
+        logger.info("[STANDBY] Robot listo en zona de salida. Esperando señal de arranque...")
+        self.servo_lidar.centrar()
+        self.arduino.frenar()
+
+        d = self.lidar.leer_distancia_cm()
+        if d > 0:
+            logger.info(f"[LiDAR] ✓ Señal activa: {d:.0f} cm | Fuerza: {self.lidar.ultima_fuerza}")
+        else:
+            logger.warning("[LiDAR] ⚠️ Esperando primeras tramas del sensor TF-Luna...")
 
         if self.boton is not None:
-            logger.info(f"Esperando activación del pulsador de retención (GPIO {PIN_BOTON_INICIO})...")
-            logger.info(f"Estado inicial del switch: {'ON' if not self.boton.is_pressed else 'OFF'}")
+            estado_previo = self.boton.is_pressed
             try:
-                switch_state = self.boton.is_pressed
                 while True:
-                    current_state = self.boton.is_pressed
-                    if current_state != switch_state:
-                        logger.info(f"¡Switch cambiado de estado! Nuevo estado: {'ON' if not current_state else 'OFF'}. Arrancando en 0.5 segundos...")
+                    estado_actual = self.boton.is_pressed
+                    if estado_actual != estado_previo:
+                        logger.info("¡Switch activado! Arrancando carrera en 0.5s...")
                         time.sleep(0.5)
                         return True
-                    switch_state = current_state
                     time.sleep(0.05)
             except KeyboardInterrupt:
-                logger.info("Cancelado en standby por teclado.")
                 return False
         else:
-            logger.info("Switch GPIO no disponible. Presione ENTER en consola para iniciar carrera...")
+            logger.info("Presione ENTER en consola para iniciar...")
             try:
                 input()
-                logger.info("¡Comando de inicio recibido! Arrancando en 0.5 segundos...")
-                time.sleep(0.5)
                 return True
             except (KeyboardInterrupt, EOFError):
-                logger.info("Cancelado en standby.")
                 return False
 
-    def ejecutar_logica_abierta(self, distancia: float, ahora: float):
-        """Lógica de navegación para modo abierto (sin obstáculos)."""
-        if not self.en_giro:
-            tiempo_desde_ultimo_giro = ahora - self.tiempo_ultima_esquina
-            if distancia <= DISTANCIA_GIRO_CM and tiempo_desde_ultimo_giro >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                self.en_giro = True
-                self.tiempo_inicio_giro = ahora
-                self.tiempo_ultima_esquina = ahora
-                self.esquinas_completadas += 1
-                vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
-                esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
-                
-                logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {distancia:.0f}cm")
-                self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_ESQUINA)
-            else:
-                cambio_distancia = abs(distancia - self.ultima_distancia_log)
-                if cambio_distancia > 10.0:
-                    logger.info(f"[RECTA] {distancia:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
-                    self.ultima_distancia_log = distancia
-                self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+    def _determinar_angulos_esquiva(self, color: str) -> Tuple[int, int]:
+        """
+        Regla WRO 9.19:
+        - Pilar Rojo: Rodear dejándolo a la derecha -> Girar primero a la IZQUIERDA.
+        - Pilar Verde: Rodear dejándolo a la izquierda -> Girar primero a la DERECHA.
+        """
+        if color == 'rojo':
+            return (ANG_IZQUIERDA, ANG_DERECHA)
+        elif color == 'verde':
+            return (ANG_DERECHA, ANG_IZQUIERDA)
+        elif color == 'morado':
+            return (ANG_IZQUIERDA, ANG_DERECHA)
         else:
-            tiempo_en_giro = ahora - self.tiempo_inicio_giro
-            giro_completado = False
-            if tiempo_en_giro >= DURACION_MIN_GIRO_SEG:
-                if distancia >= DISTANCIA_DESPEJADA_CM or tiempo_en_giro >= DURACION_MAX_GIRO_SEG:
-                    giro_completado = True
+            return (ANG_IZQUIERDA, ANG_DERECHA)
 
-            if giro_completado:
-                self.en_giro = False
-                logger.info(f"[FIN GIRO] {tiempo_en_giro:.1f}s | Recta")
-                self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
-            else:
-                self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_ESQUINA)
+    def ciclo_control(self, ahora: float):
+        """Ciclo determinista ejecutado a 40 Hz."""
+        # 1. Telemetría no bloqueante
+        self.arduino.leer_telemetria_no_bloqueante()
 
-    def ejecutar_logica_obstaculos(self, distancia: float, ahora: float):
-        """Lógica de navegación para modo obstáculos (con esquiva)."""
-        if self.estado_obstaculos == ESTADO_RECTA:
-            tiempo_desde_esquina = ahora - self.tiempo_ultima_esquina
+        # 2. Lectura LiDAR
+        d = self.lidar.leer_distancia_cm()
+        if d > 0:
+            self.distancia_actual = d
+            self.tiempo_ultimo_lidar_ok = ahora
+        else:
+            tiempo_sin_sensor = ahora - self.tiempo_ultimo_lidar_ok
+            if tiempo_sin_sensor > TIMEOUT_LIDAR_FAILSAFE:
+                logger.warning(f"[FAIL-SAFE] ⚠️ Sin señal LiDAR por {tiempo_sin_sensor:.1f}s")
+                if tiempo_sin_sensor > 4.0:
+                    logger.critical("[FAIL-SAFE] ¡Pérdida crítica de sensor! Frenando.")
+                    self.arduino.frenar()
+                    return
 
-            # Prioridad 1: Pared de contención → giro de esquina
-            if distancia <= DISTANCIA_GIRO_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                self.estado_obstaculos = ESTADO_GIRANDO_ESQUINA
+        dist = self.distancia_actual
+        tiempo_desde_esquina = ahora - self.tiempo_ultima_esquina
+
+        # 3. Visión y Transición Dinámica de Modo
+        color_detectado = self.vision.detectar_color()
+        if color_detectado in ['rojo', 'verde', 'morado'] and self.modo_competicion == MODO_ABIERTO:
+            self.modo_competicion = MODO_OBSTACULOS
+            logger.info(f"╔══════════════════════════════════════════════════════╗")
+            logger.info(f"║ [CAMBIO DE MODO] ¡Pilar {color_detectado.upper()} detectado!             ║")
+            logger.info(f"║ Transición permanente activada: MODO OBSTÁCULOS      ║")
+            logger.info(f"╚══════════════════════════════════════════════════════╝")
+
+        # ==================== MÁQUINA DE ESTADOS ====================
+
+        if self.estado == self.ESTADO_RECTA:
+            # Prioridad 1: Obstáculo detectado en Modo Obstáculos
+            if self.modo_competicion == MODO_OBSTACULOS and color_detectado is not None and dist <= DISTANCIA_OBSTACULO_CM and tiempo_desde_esquina >= COOLDOWN_ESQUINA:
+                self.angulo_esquiva_actual, self.angulo_contra_esquiva = self._determinar_angulos_esquiva(color_detectado)
+                self.estado = self.ESTADO_ESQUIVA_FASE1
+                self.tiempo_inicio_maniobra = ahora
+                logger.info(f"[OBSTÁCULO] Pilar {color_detectado.upper()} a {dist:.0f}cm -> Esquiva Fase 1 ({self.angulo_esquiva_actual}°)")
+                self.arduino.enviar(VEL_ESQUIVA, self.angulo_esquiva_actual)
+
+            # Prioridad 2: Pared frontal de esquina
+            elif dist <= DISTANCIA_ESQUINA_CM and tiempo_desde_esquina >= COOLDOWN_ESQUINA:
+                # Si es la primera esquina, autodetectar sentido de giro con el LiDAR
+                if self.sentido_detectado is None:
+                    self.arduino.enviar(0, ANG_RECTO)  # Breve pausa para escanear con precisión
+                    self.autodetectar_sentido_giro()
+
+                self.estado = self.ESTADO_GIRO_ESQUINA
                 self.tiempo_inicio_maniobra = ahora
                 self.tiempo_ultima_esquina = ahora
                 self.esquinas_completadas += 1
-                vueltas = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA
-                esq_en_vuelta = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
-                logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{vueltas+1}-E{esq_en_vuelta} a {distancia:.0f}cm")
-                self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_ESQUINA)
-
-            # Prioridad 2: Obstáculo (pilar) → esquiva por color
-            elif distancia <= DISTANCIA_OBSTACULO_CM and tiempo_desde_esquina >= TIEMPO_COOLDOWN_ESQUINA_SEG:
-                logger.info(f"[OBSTÁCULO] {distancia:.0f}cm - Detectando color...")
-                
-                # Determinar dirección de esquiva basada en color
-                if self.color_detectado == 'rojo':
-                    angulo_esquiva = ANGULO_GIRO_IZQUIERDA
-                    logger.info(f"[ESQUIVA] ← IZQUIERDA (ROJO) ({angulo_esquiva}°)")
-                elif self.color_detectado == 'verde':
-                    angulo_esquiva = ANGULO_GIRO_DERECHA
-                    logger.info(f"[ESQUIVA] → DERECHA (VERDE) ({angulo_esquiva}°)")
-                elif self.color_detectado == 'morado':
-                    angulo_esquiva = ANGULO_GIRO_IZQUIERDA
-                    logger.info(f"[ESQUIVA] ← IZQUIERDA (MORADO) ({angulo_esquiva}°)")
-                else:
-                    # Fallback: esquiva izquierda si no detecta color
-                    angulo_esquiva = ANGULO_GIRO_IZQUIERDA
-                    logger.info(f"[ESQUIVA] ← IZQUIERDA (FALLBACK - sin color) ({angulo_esquiva}°)")
-                
-                self.angulo_esquiva_activo = angulo_esquiva
-                self.estado_obstaculos = ESTADO_ESQUIVANDO
-                self.tiempo_inicio_maniobra = ahora
-                self.arduino.enviar(VELOCIDAD_ESQUIVA, angulo_esquiva)
+                v = (self.esquinas_completadas - 1) // ESQUINAS_POR_VUELTA + 1
+                e = ((self.esquinas_completadas - 1) % ESQUINAS_POR_VUELTA) + 1
+                logger.info(f"[ESQUINA #{self.esquinas_completadas}] V{v}-E{e} a {dist:.0f}cm -> Giro {self.sentido_detectado.upper()} ({self.angulo_giro_esquina}°)")
+                self.arduino.enviar(VEL_GIRO, self.angulo_giro_esquina)
 
             # Prioridad 3: Recta libre
             else:
-                logger.info(f"[RECTA] {distancia:.0f}cm | V:{VELOCIDAD_CRUCERO} A:{ANGULO_DIRECCION_RECTO}")
-                self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                self.arduino.enviar(VEL_CRUCERO, ANG_RECTO)
 
-        elif self.estado_obstaculos == ESTADO_ESQUIVANDO:
-            tiempo_esquivando = ahora - self.tiempo_inicio_maniobra
-            esquiva_completa = False
-            if tiempo_esquivando >= DURACION_MIN_ESQUIVA_SEG:
-                if distancia >= DISTANCIA_DESPEJADA_CM or tiempo_esquivando >= DURACION_ESQUIVA_SEG:
-                    esquiva_completa = True
-
-            if esquiva_completa:
-                self.estado_obstaculos = ESTADO_RECTA
-                logger.info(f"[FIN ESQUIVA] {tiempo_esquivando:.1f}s | Recta")
-                self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+        elif self.estado == self.ESTADO_GIRO_ESQUINA:
+            tiempo_giro = ahora - self.tiempo_inicio_maniobra
+            if (tiempo_giro >= DURACION_MIN_GIRO and dist >= DISTANCIA_DESPEJADA_CM) or (tiempo_giro >= DURACION_MAX_GIRO):
+                self.estado = self.ESTADO_RECTA
+                logger.info(f"[FIN GIRO] Duración: {tiempo_giro:.1f}s | Retomando recta libre")
+                self.arduino.enviar(VEL_CRUCERO, ANG_RECTO)
             else:
-                self.arduino.enviar(VELOCIDAD_ESQUIVA, self.angulo_esquiva_activo)
+                self.arduino.enviar(VEL_GIRO, self.angulo_giro_esquina)
 
-        elif self.estado_obstaculos == ESTADO_GIRANDO_ESQUINA:
-            tiempo_girando = ahora - self.tiempo_inicio_maniobra
-            giro_completo = False
-            if tiempo_girando >= DURACION_MIN_GIRO_SEG:
-                if distancia >= DISTANCIA_DESPEJADA_CM or tiempo_girando >= DURACION_MAX_GIRO_SEG:
-                    giro_completo = True
-
-            if giro_completo:
-                self.estado_obstaculos = ESTADO_RECTA
-                logger.info(f"[FIN GIRO] {tiempo_girando:.1f}s | Recta")
-                self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+        elif self.estado == self.ESTADO_ESQUIVA_FASE1:
+            tiempo_esquiva_1 = ahora - self.tiempo_inicio_maniobra
+            if tiempo_esquiva_1 >= DURACION_ESQUIVA_FASE1:
+                self.estado = self.ESTADO_ESQUIVA_FASE2
+                self.tiempo_inicio_maniobra = ahora
+                logger.info(f"[ESQUIVA] Fase 2: Contra-giro de enderezado ({self.angulo_contra_esquiva}°)")
+                self.arduino.enviar(VEL_ESQUIVA, self.angulo_contra_esquiva)
             else:
-                self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_ESQUINA)
+                self.arduino.enviar(VEL_ESQUIVA, self.angulo_esquiva_actual)
+
+        elif self.estado == self.ESTADO_ESQUIVA_FASE2:
+            tiempo_esquiva_2 = ahora - self.tiempo_inicio_maniobra
+            if tiempo_esquiva_2 >= DURACION_ESQUIVA_FASE2:
+                self.estado = self.ESTADO_RECTA
+                logger.info(f"[FIN ESQUIVA] Maniobra completada | Retomando recta")
+                self.arduino.enviar(VEL_CRUCERO, ANG_RECTO)
+            else:
+                self.arduino.enviar(VEL_ESQUIVA, self.angulo_contra_esquiva)
 
     def run(self):
-        # Loop principal para permitir múltiples carreras con el mismo switch
+        """Bucle principal de ejecución de carrera."""
         while True:
-            # 1. Modo Standby tras encendido
             if not self.esperar_inicio():
                 self.limpiar()
                 return
 
-            logger.info("=== INICIANDO NAVEGACIÓN ALTERNATIVA (MODO DINÁMICO) ===")
-            logger.info(f"Meta: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas).")
-            logger.info(f"Modo inicial: {self.modo_actual}")
-            logger.info(f"Umbral de giro frontal: {DISTANCIA_GIRO_CM} cm.")
-            logger.info(f"Velocidad crucero: {VELOCIDAD_CRUCERO}, Ángulo recto: {ANGULO_DIRECCION_RECTO}")
+            logger.info("=== INICIANDO CARRERA (WRO SAFETY MVP) ===")
+            logger.info(f"Modo inicial: {self.modo_competicion} | Objetivo: {VUELTAS_OBJETIVO} vueltas ({TOTAL_ESQUINAS} esquinas)")
 
-            periodo_bucle = 1.0 / FRECUENCIA_CONTROL_HZ
-
-            # Cooldown inicial
+            periodo = 1.0 / FRECUENCIA_CONTROL_HZ
+            self.esquinas_completadas = 0
+            self.estado = self.ESTADO_RECTA
+            self.sentido_detectado = None
+            self.modo_competicion = MODO_ABIERTO
             self.tiempo_ultima_esquina = time.monotonic()
+            self.tiempo_ultimo_lidar_ok = time.monotonic()
             
-            # Centrar servo antes de iniciar carrera
-            logger.info(f"[CENTRAR] Servo a {ANGULO_DIRECCION_RECTO}°")
-            self.arduino.enviar(0, ANGULO_DIRECCION_RECTO)
-            time.sleep(0.5)
-            
-            # Inicializar estado del switch
-            if self.boton is not None:
-                self.boton_estado_anterior = self.boton.is_pressed
-            
-            # Iniciar cámara
-            if not self.camera_iniciada:
-                self.camera_iniciada = self.camera.start()
-                if self.camera_iniciada:
-                    logger.info("Cámara iniciada para detección dinámica de modo")
+            self.servo_lidar.centrar()
+            self.arduino.enviar(VEL_CRUCERO, ANG_RECTO)
 
-            # Enviar comando inicial
-            logger.info(f"[ARRANQUE] Vel: {VELOCIDAD_CRUCERO}, Ang: {ANGULO_DIRECCION_RECTO}°")
-            self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+            boton_estado_previo = self.boton.is_pressed if self.boton else None
+            carrera_abortada = False
 
-            carrera_detenida = False
             try:
-                counter = 0
                 while self.esquinas_completadas < TOTAL_ESQUINAS:
-                    t_inicio_iter = time.monotonic()
+                    t_inicio = time.monotonic()
                     ahora = time.monotonic()
-                    counter += 1
 
-                    # Leer telemetría del Arduino
-                    self.arduino.leer_telemetria()
-
-                    # Verificar cambio del switch de inicio
-                    if self.boton is not None:
-                        boton_estado_actual = self.boton.is_pressed
-                        if boton_estado_actual != self.boton_estado_anterior:
-                            logger.info("[STOP] Switch de inicio cambiado - Deteniendo carrera")
-                            self.boton_estado_anterior = boton_estado_actual
-                            carrera_detenida = True
+                    # Chequeo de switch de parada de emergencia
+                    if self.boton:
+                        b_act = self.boton.is_pressed
+                        if b_act != boton_estado_previo:
+                            logger.info("[STOP] Switch accionado -> Deteniendo carrera")
+                            carrera_abortada = True
                             break
 
-                    # Leer distancia frontal del LiDAR
-                    distancia = self.lidar.leer_distancia_cm()
-                    if distancia > 0:
-                        self.ultima_distancia_valida = distancia
-                    else:
-                        # Log cuando no se obtiene lectura válida
-                        if counter % 40 == 0:  # Log cada ~1 segundo
-                            logger.debug(f"[LiDAR] Sin lectura válida, usando última: {self.ultima_distancia_valida:.0f}cm")
+                    self.ciclo_control(ahora)
 
-                    dist = self.ultima_distancia_valida
-                    
-                    # Detectar color (cada 5 ciclos ~0.125s)
-                    if self.camera_iniciada and counter % 5 == 0:
-                        frame = self.camera.get_latest()
-                        if frame:
-                            color = self.color_detector.detectar(frame.data)
-                            if color and color != self.color_detectado:
-                                self.color_detectado = color
-                                logger.info(f"[COLOR] ✓ Confirmado: {color.upper()} detectado")
-                            elif not color and self.color_detectado is not None:
-                                # Log solo cuando deja de detectar un color que antes detectaba
-                                logger.info(f"[COLOR] ✗ Ya no se detecta {self.color_detectado.upper()}")
-                                self.color_detectado = None
-                        elif self.color_detectado is not None:
-                            # Log solo cuando hay frame pero no detecta color esperado
-                            logger.debug("[CÁMARA] Frame recibido pero sin color detectado")
+                    t_loop = time.monotonic() - t_inicio
+                    t_sleep = periodo - t_loop
+                    if t_sleep > 0:
+                        time.sleep(t_sleep)
 
-                    # Detectar transición a modo obstáculos
-                    if not self.transicion_a_obstaculos and self.color_detectado in ['rojo', 'verde', 'morado']:
-                        self.transicion_a_obstaculos = True
-                        self.modo_actual = ESTADO_OBSTACULOS
-                        logger.info(f"[CAMBIO MODO] Detectado {self.color_detectado.upper()} → OBSTACULOS")
-
-                    # Ejecutar lógica según modo actual
-                    if self.modo_actual == ESTADO_ABIERTO:
-                        self.ejecutar_logica_abierta(dist, ahora)
-                    else:
-                        self.ejecutar_logica_obstaculos(dist, ahora)
-
-                    # Control de frecuencia
-                    t_transcurrido = time.monotonic() - t_inicio_iter
-                    t_dormir = periodo_bucle - t_transcurrido
-                    if t_dormir > 0:
-                        time.sleep(t_dormir)
-
-                if not carrera_detenida:
-                    logger.info(f"¡RETO COMPLETADO! Se completaron {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas).")
+                if not carrera_abortada:
+                    logger.info(f"¡CARRERA COMPLETADA! {TOTAL_ESQUINAS} esquinas ({VUELTAS_OBJETIVO} vueltas) concluidas.")
 
             except KeyboardInterrupt:
-                logger.info("Interrupción manual por teclado.")
-                carrera_detenida = True
+                logger.info("Interrupción por teclado.")
+                carrera_abortada = True
             except Exception as e:
-                logger.error(f"Error inesperado en loop de navegación: {e}", exc_info=True)
-                carrera_detenida = True
-            
-            # Frenar motores después de la carrera
-            if self.arduino:
-                self.arduino.frenar()
-                time.sleep(0.1)
-            
-            # Si la carrera fue detenida por el switch, reiniciar
-            if carrera_detenida:
-                logger.info("[REINICIO] Carrera detenida por switch - Reiniciando para nueva carrera")
-                self.esquinas_completadas = 0
-                self.en_giro = False
-                self.estado_obstaculos = ESTADO_RECTA
-                self.modo_actual = ESTADO_ABIERTO
-                self.transicion_a_obstaculos = False
-                self.color_detectado = None
+                logger.error(f"Excepción en carrera: {e}", exc_info=True)
+                carrera_abortada = True
+
+            self.arduino.frenar()
+            time.sleep(0.2)
+
+            if carrera_abortada:
+                logger.info("[REINICIO] Preparando para nueva carrera...")
                 time.sleep(1.0)
             else:
                 self.limpiar()
                 break
 
     def limpiar(self):
-        logger.info("Deteniendo robot y cerrando conexiones...")
-        if self.arduino:
-            self.arduino.frenar()
-            time.sleep(0.1)
-            self.arduino.cerrar()
-        if self.lidar:
-            self.lidar.cerrar()
-        if self.camera:
-            self.camera.stop()
-        logger.info("Sistema alternativo finalizado con éxito.")
+        logger.info("Cerrando subsistemas y liberando hardware...")
+        self.arduino.cerrar()
+        self.servo_lidar.cerrar()
+        self.lidar.cerrar()
+        self.vision.cerrar()
+        logger.info("Safety System finalizado.")
+
+
+# ==============================================================================
+# AUTODIAGNÓSTICO RÁPIDO DE BANCO (--test)
+# ==============================================================================
+
+def autodiagnostico():
+    print("=" * 60)
+    print("   WRO 2026 - SAFETY SYSTEM HARDWARE SELF-TEST")
+    print("=" * 60)
+
+    # 1. Servo LiDAR
+    print("\n[1/4] Probando Servo SG90 LiDAR en GPIO 18...")
+    s = LidarServoDriver()
+    s.test_movimiento()
+    print("   ✓ Servo centrado a 90°.")
+
+    # 2. LiDAR TF-Luna
+    print("\n[2/4] Probando sensor LiDAR TF-Luna en /dev/serial0...")
+    lidar = LidarUartDriver()
+    t0 = time.time()
+    lecturas = 0
+    while time.time() - t0 < 2.5:
+        d = lidar.leer_distancia_cm()
+        if d > 0:
+            lecturas += 1
+            print(f"   -> Distancia: {d:5.1f} cm | Fuerza: {lidar.ultima_fuerza:4d}      ", end='\r')
+        time.sleep(0.04)
+    print()
+    if lecturas > 0:
+        print(f"   ✓ LiDAR operativo ({lecturas} lecturas válidas).")
+    else:
+        print("   ✗ No se recibieron lecturas válidas de TF-Luna.")
+
+    # 3. Arduino
+    print("\n[3/4] Probando Arduino UNO...")
+    ard = ArduinoDriver()
+    if ard.conn and ard.conn.is_open:
+        print(f"   ✓ Conectado en {ard.port}. Probando pulso de dirección...")
+        ard.enviar(0, ANG_RECTO)
+        time.sleep(0.3)
+        ard.enviar(0, ANG_IZQUIERDA)
+        time.sleep(0.3)
+        ard.enviar(0, ANG_DERECHA)
+        time.sleep(0.3)
+        ard.enviar(0, ANG_RECTO)
+        time.sleep(0.2)
+        print("   ✓ Pulsos transmitidos.")
+    else:
+        print("   ✗ Arduino no detectado.")
+
+    # 4. Cámara
+    print("\n[4/4] Probando Cámara...")
+    vis = VisionColorDetector()
+    if vis.disponible:
+        c = vis.detectar_color()
+        print(f"   ✓ Cámara operativa. Color en ROI: {c or 'Ninguno (neutro)'}")
+    else:
+        print("   ✗ Cámara no disponible.")
+
+    # Limpieza
+    s.cerrar()
+    lidar.cerrar()
+    ard.cerrar()
+    vis.cerrar()
+    print("\n" + "=" * 60)
+    print("   TEST COMPLETADO")
+    print("=" * 60)
 
 
 def main():
-    runner = SafetyRunner()
-    runner.run()
+    parser = argparse.ArgumentParser(description="WRO 2026 Safety System Runner")
+    parser.add_argument("--test", "-t", action="store_true", help="Ejecutar autodiagnóstico de hardware")
+    args = parser.parse_args()
+
+    if args.test:
+        autodiagnostico()
+    else:
+        runner = SafetyRunner()
+        runner.run()
 
 
 if __name__ == "__main__":
