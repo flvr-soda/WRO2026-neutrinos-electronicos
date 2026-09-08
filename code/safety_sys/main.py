@@ -38,16 +38,6 @@ except ImportError:
 # Conexiones seriales
 BAUD_ARDUINO = 115200
 
-# Pines GPIO para ultrasónico
-PIN_ULTRASONICO_TRIGGER = 23
-PIN_ULTRASONICO_ECHO = 24
-
-# Servo del ultrasónico para paneo
-PIN_SERVO_ULTRASONICO = 18
-ANGULO_SERVO_CENTRO = 90
-ANGULO_SERVO_IZQUIERDA = 180
-ANGULO_SERVO_DERECHA = 0
-
 # Botón de inicio físico (Regla WRO 9.11)
 # Compartido con el sistema principal - GPIO 17 (Pin físico 11)
 PIN_BOTON_INICIO = 17
@@ -189,64 +179,6 @@ class UltrasonicSensor:
         # No requiere cleanup con RPi.GPIO directo
         pass
 
-# DRIVER SERVO PARA PANEO DE ULTRASÓNICO
-class ServoScanner:
-    """Controla servo SG90 para paneo del sensor ultrasónico."""
-    def __init__(self, pin=PIN_SERVO_ULTRASONICO, angulo_centro=ANGULO_SERVO_CENTRO):
-        self.pin = pin
-        self.angulo_centro = angulo_centro
-        self.servo = None
-        self._inicializar()
-
-    def _inicializar(self):
-        if AngularServo is None:
-            logger.warning("AngularServo no disponible para servo scanner")
-            return
-        try:
-            self.servo = AngularServo(
-                self.pin,
-                min_angle=0,
-                max_angle=180,
-                min_pulse_width=0.0005,
-                max_pulse_width=0.0025
-            )
-            # Centrar con delay más largo para asegurar posición inicial
-            self.servo.angle = self.angulo_centro
-            time.sleep(2.0)  # Delay más largo para asegurar centrado
-            logger.info(f"Servo Scanner inicializado en GPIO {self.pin}, centrado a {self.angulo_centro}°")
-        except Exception as e:
-            logger.warning(f"Error inicializando servo scanner: {e}")
-            self.servo = None
-
-    def mover(self, angulo):
-        """Mueve el servo a un ángulo específico."""
-        if self.servo is None:
-            return
-        try:
-            self.servo.angle = angulo
-            time.sleep(0.4)  # Tiempo para que el servo complete el movimiento
-        except Exception as e:
-            logger.debug(f"Error moviendo servo: {e}")
-
-    def centrar(self):
-        """Centra el servo mirando al frente."""
-        self.mover(self.angulo_centro)
-
-    def izquierda(self):
-        """Mueve el servo a la izquierda máxima."""
-        self.mover(ANGULO_SERVO_IZQUIERDA)
-
-    def derecha(self):
-        """Mueve el servo a la derecha máxima."""
-        self.mover(ANGULO_SERVO_DERECHA)
-
-    def cerrar(self):
-        if self.servo:
-            try:
-                self.servo.close()
-            except Exception:
-                pass
-
 # DRIVER SERIAL ARDUINO DIRECTO
 class DirectArduino:
     """Envío directo de consignas de velocidad y ángulo al Arduino."""
@@ -322,6 +254,25 @@ class DirectArduino:
         except Exception as e:
             logger.error(f"[ERROR] Error enviando comando de dirección: {e}")
 
+    def enviar_servo_ultrasonico(self, posicion: str):
+        """Envía comando para servo de ultrasónico: S (centro), L (izquierda), R (derecha)"""
+        if not self.conn or not self.conn.is_open:
+            logger.warning("Arduino no conectado, no se puede enviar comando de servo ultrasónico")
+            return
+
+        if posicion not in ['S', 'L', 'R']:
+            logger.warning(f"Posición inválida: {posicion}. Debe ser S, L o R")
+            return
+
+        comando = f"{posicion}\n"
+        try:
+            logger.info(f"[COMANDO] Servo ultrasónico: {posicion}")
+            self.conn.write(comando.encode('utf-8'))
+            self.conn.flush()
+            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
+        except Exception as e:
+            logger.error(f"[ERROR] Error enviando comando de servo ultrasónico: {e}")
+
     def enviar_velocidad(self, velocidad: int):
         """Envía comando simple de velocidad usando formato V:vel;A:90 (manteniendo dirección actual)"""
         if not self.conn or not self.conn.is_open:
@@ -341,7 +292,7 @@ class DirectArduino:
             logger.error(f"[ERROR] Error enviando comando de velocidad: {e}")
 
     def leer_telemetria(self):
-        """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
+        """Lee telemetría del Arduino en formato D:distancia;"""
         if not self.conn or not self.conn.is_open:
             logger.warning("[RX] Arduino no conectado para telemetría")
             return None
@@ -350,8 +301,17 @@ class DirectArduino:
             if self.conn.in_waiting > 0:
                 linea = self.conn.readline().decode('utf-8', errors='ignore').strip()
                 if linea:
-                    logger.info(f"[RX] Telemetría Arduino: {linea}")
-                    return linea
+                    # Parsear formato D:distancia;
+                    if linea.startswith("D:"):
+                        try:
+                            distancia_str = linea[2:].replace(";", "")
+                            distancia = float(distancia_str)
+                            logger.info(f"[RX] Distancia frontal: {distancia:.1f} cm")
+                            return distancia
+                        except ValueError:
+                            logger.warning(f"[RX] Formato de distancia inválido: {linea}")
+                    else:
+                        logger.info(f"[RX] Telemetría Arduino: {linea}")
         except Exception as e:
             logger.error(f"[ERROR] Error leyendo telemetría: {e}")
         return None
@@ -370,8 +330,6 @@ class DirectArduino:
 class EmergencyUltrasonicRunner:
     def __init__(self):
         logger.info("Inicializando componentes del Sistema de Emergencia...")
-        self.ultrasonico = UltrasonicSensor(PIN_ULTRASONICO_TRIGGER, PIN_ULTRASONICO_ECHO)
-        self.servo_scanner = ServoScanner(PIN_SERVO_ULTRASONICO, ANGULO_SERVO_CENTRO)
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.boton = None
 
@@ -397,46 +355,9 @@ class EmergencyUltrasonicRunner:
 
     def autodetectar_sentido_giro(self):
         """
-        Realiza un paneo del servo ultrasónico para detectar el sentido de giro libre.
-        Mueve el servo de izquierda a derecha, mide distancias y determina la dirección libre.
-        Retorna 'derecha' o 'izquierda'.
+        Simplificado: siempre gira a la izquierda
         """
-        logger.info("[AUTODETECCIÓN] Iniciando paneo para detectar sentido de giro...")
-        
-        # Mover a izquierda máxima y medir
-        self.servo_scanner.izquierda()
-        time.sleep(0.5)
-        dist_izquierda = self.ultrasonico.leer_distancia_cm()
-        logger.info(f"[AUTODETECCIÓN] Distancia izquierda: {dist_izquierda:.1f} cm")
-        
-        # Mover a derecha máxima y medir
-        self.servo_scanner.derecha()
-        time.sleep(0.5)
-        dist_derecha = self.ultrasonico.leer_distancia_cm()
-        logger.info(f"[AUTODETECCIÓN] Distancia derecha: {dist_derecha:.1f} cm")
-        
-        # Regresar al centro
-        self.servo_scanner.centrar()
-        time.sleep(0.5)
-        
-        # Determinar dirección libre
-        if dist_izquierda >= DISTANCIA_LIBRE_CM and dist_derecha >= DISTANCIA_LIBRE_CM:
-            # Ambas direcciones libres, preferir derecha por defecto
-            sentido = 'derecha'
-            logger.info(f"[AUTODETECCIÓN] Ambas direcciones libres. Seleccionando: {sentido}")
-        elif dist_izquierda >= DISTANCIA_LIBRE_CM:
-            sentido = 'izquierda'
-            logger.info(f"[AUTODETECCIÓN] Dirección libre detectada: {sentido}")
-        elif dist_derecha >= DISTANCIA_LIBRE_CM:
-            sentido = 'derecha'
-            logger.info(f"[AUTODETECCIÓN] Dirección libre detectada: {sentido}")
-        else:
-            # Ninguna dirección libre, usar derecha por defecto
-            sentido = 'derecha'
-            logger.warning(f"[AUTODETECCIÓN] Ninguna dirección libre. Usando: {sentido}")
-        
-        self.sentido_giro = sentido
-        return sentido
+        return 'izquierda'
 
     def esperar_inicio(self):
         """
@@ -545,12 +466,9 @@ class EmergencyUltrasonicRunner:
                         self.arduino.enviar_direccion('C')
                         continue
 
-                # Leer telemetría del Arduino para verificar comunicación
-                self.arduino.leer_telemetria()
-
-                # 1. Leer distancia frontal del ultrasónico
-                distancia = self.ultrasonico.leer_distancia_cm()
-                if distancia > 0:
+                # Leer telemetría del Arduino para obtener distancia frontal
+                distancia = self.arduino.leer_telemetria()
+                if distancia is not None and distancia > 0:
                     self.ultima_distancia_valida = distancia
 
                 dist = self.ultima_distancia_valida
@@ -673,10 +591,6 @@ class EmergencyUltrasonicRunner:
             self.arduino.frenar()
             time.sleep(0.1)
             self.arduino.cerrar()
-        if self.ultrasonico:
-            self.ultrasonico.cerrar()
-        if self.servo_scanner:
-            self.servo_scanner.cerrar()
         if self.boton:
             try:
                 self.boton.close()

@@ -7,15 +7,18 @@
 // Servo de Dirección
 const int PIN_SERVO = 9;
 
+// Servo de Ultrasónico (paneo)
+const int PIN_SERVO_ULTRASONICO = 10;
+
 // Puente H BTS7960
 const int PIN_RPWM = 5; // PWM Derecha (Avanzar)
 const int PIN_LPWM = 3; // PWM Izquierda (Retroceder)
 const int PIN_R_EN = 7; // Enable Derecha
 const int PIN_L_EN = 8; // Enable Izquierda 
 
-// HC-SR04 Trasero
-const int PIN_TRIG_TRASERO = 12;
-const int PIN_ECHO_TRASERO = 13;
+// HC-SR04 Frontal
+const int PIN_TRIG_FRONTAL = 11;
+const int PIN_ECHO_FRONTAL = 12;
 
 // Constantes de calibración del giroscopio
 // const int GYRO_BIAS_MUESTRAS = 300;  // Comentado: Deshabilitado MPU6050
@@ -30,27 +33,26 @@ String inputString = "";
 bool stringComplete = false;
 
 // Variables de sensores
-// float mpu_z_acumulado = 0.0;  // Comentado: Deshabilitado MPU6050
-float distancia_trasera_cm = -1.0;
+float distancia_frontal_cm = -1.0;
 static unsigned long ultimaMedicionUs = 0;
-// const int MPU_ADDR = 0x68;  // Comentado: Deshabilitado MPU6050
-// static float gyro_z_bias = 0.0f;  // Comentado: Deshabilitado MPU6050
-static unsigned int ciclo_sensor = 0;
-static float historico_distancias[5] = {-1.0, -1.0, -1.0, -1.0, -1.0};
-static int idx_historico = 0;
-const float DISTANCIA_EMERGENCIA_CM = 5.0;
 
 // Variables de control
 Servo servoDireccion;
+Servo servoUltrasonico;
 static unsigned long ultimoSensoresMs = 0;
 static unsigned long ultimoTelemetriaMs = 0;
 const unsigned long SENSORES_INTERVALO_MS = 10;
 const unsigned long TELEMETRIA_INTERVALO_MS = 100;
 
-// Ángulos predefinidos para comandos simples (rango completo SG90: 0-180°)
+// Ángulos predefinidos para servo de dirección (rango completo SG90: 0-180°)
 const int ANGULO_CENTRO = 90;
 const int ANGULO_DERECHA = 0;    // Extrema derecha
 const int ANGULO_IZQUIERDA = 180; // Extrema izquierda
+
+// Ángulos predefinidos para servo de ultrasónico (paneo)
+const int ANGULO_SERVO_CENTRO = 50;
+const int ANGULO_SERVO_IZQUIERDA = 100;
+const int ANGULO_SERVO_DERECHA = 0;
 
 // ============================================================
 // INICIALIZACIÓN
@@ -134,6 +136,18 @@ void parsearComando(String comando) {
         anguloActual = ANGULO_IZQUIERDA;
         Serial.println("Comando: IZQUIERDA");
         return;
+      case 'S':
+        servoUltrasonico.write(ANGULO_SERVO_CENTRO);
+        Serial.println("Comando: SERVO CENTRO");
+        return;
+      case 'L':
+        servoUltrasonico.write(ANGULO_SERVO_IZQUIERDA);
+        Serial.println("Comando: SERVO IZQUIERDA");
+        return;
+      case 'R':
+        servoUltrasonico.write(ANGULO_SERVO_DERECHA);
+        Serial.println("Comando: SERVO DERECHA");
+        return;
     }
   }
   
@@ -157,12 +171,8 @@ void parsearComando(String comando) {
 }
 
 void enviarTelemetria() {
-  Serial.print("T:Z:");
-  Serial.print(0.0, 1);  // Valor fijo en lugar de mpu_z_acumulado (MPU deshabilitado)
-  Serial.print(";A:");
-  Serial.print(anguloActual);
-  Serial.print(";U:");
-  Serial.print(distancia_trasera_cm);
+  Serial.print("D:");
+  Serial.print(distancia_frontal_cm, 1);
   Serial.println(";");
 }
 
@@ -172,6 +182,9 @@ void enviarTelemetria() {
 void initMotores() {
   servoDireccion.attach(PIN_SERVO);
   servoDireccion.write(anguloActual);
+  
+  servoUltrasonico.attach(PIN_SERVO_ULTRASONICO);
+  servoUltrasonico.write(ANGULO_SERVO_CENTRO);
   
   pinMode(PIN_RPWM, OUTPUT);
   pinMode(PIN_LPWM, OUTPUT);
@@ -208,99 +221,24 @@ void aplicarComandos() {
 }
 
 // ============================================================
-// SENSORES (MPU6050 + HC-SR04)
+// SENSORES (HC-SR04 Frontal)
 // ============================================================
 void initSensores() {
-  pinMode(PIN_TRIG_TRASERO, OUTPUT);
-  pinMode(PIN_ECHO_TRASERO, INPUT);
-  digitalWrite(PIN_TRIG_TRASERO, LOW);
-
-  // Comentado: Deshabilitado MPU6050
-  // Wire.begin();
-  // Wire.beginTransmission(MPU_ADDR);
-  // Wire.write(0x6B);
-  // Wire.write(0);
-  // Wire.endTransmission(true);
-
-  // Comentado: Calibración de bias del eje Z (MPU deshabilitado)
-  // long suma_z = 0;
-  // for (int i = 0; i < GYRO_BIAS_MUESTRAS; i++) {
-  //   Wire.beginTransmission(MPU_ADDR);
-  //   Wire.write(0x47);
-  //   Wire.endTransmission(false);
-  //   Wire.requestFrom(MPU_ADDR, 2, true);
-  //   if (Wire.available() == 2) {
-  //     int16_t raw = Wire.read() << 8 | Wire.read();
-  //     suma_z += raw;
-  //   }
-  //   delay(5);
-  // }
-  // gyro_z_bias = (float)suma_z / (float)GYRO_BIAS_MUESTRAS / 131.0f;
-
-  ultimaMedicionUs = micros();
+  pinMode(PIN_TRIG_FRONTAL, OUTPUT);
+  pinMode(PIN_ECHO_FRONTAL, INPUT);
+  digitalWrite(PIN_TRIG_FRONTAL, LOW);
 }
 
 void actualizarSensores() {
-  unsigned long ahoraUs = micros();
-  unsigned long deltaUs = ahoraUs - ultimaMedicionUs;
-  if (deltaUs == 0) return;
+  // Leer ultrasónico frontal
+  digitalWrite(PIN_TRIG_FRONTAL, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_TRIG_FRONTAL, LOW);
 
-  // Comentado: Deshabilitado MPU6050
-  // Wire.beginTransmission(MPU_ADDR);
-  // Wire.write(0x47);
-  // Wire.endTransmission(false);
-  // Wire.requestFrom(MPU_ADDR, 2, true);
-
-  // if (Wire.available() == 2) {
-  //   int16_t gyroZ = Wire.read() << 8 | Wire.read();
-  //   float gyroZ_deg_s = ((float)gyroZ / 131.0f) - gyro_z_bias;
-  //   if (abs(gyroZ_deg_s) < GYRO_DEADBAND_DPS) {
-  //     gyroZ_deg_s = 0.0f;
-  //   }
-  //   float deltaSegundos = (float)deltaUs / 1000000.0f;
-  //   mpu_z_acumulado += gyroZ_deg_s * deltaSegundos;
-  // }
-
-  ultimaMedicionUs = ahoraUs;
-
-  // Lectura HC-SR04 cada 5 ciclos
-  ciclo_sensor++;
-  if (ciclo_sensor >= 5) {
-    ciclo_sensor = 0;
-    digitalWrite(PIN_TRIG_TRASERO, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_TRIG_TRASERO, LOW);
-
-    long duration = pulseIn(PIN_ECHO_TRASERO, HIGH, 6000);
-    if (duration > 0) {
-      float lectura_cruda = duration * 0.034f / 2.0f;
-      
-      historico_distancias[idx_historico] = lectura_cruda;
-      idx_historico = (idx_historico + 1) % 5;
-      
-      float suma = 0.0;
-      int validos = 0;
-      for (int i = 0; i < 5; i++) {
-        if (historico_distancias[i] > 0) {
-          suma += historico_distancias[i];
-          validos++;
-        }
-      }
-      if (validos > 0) {
-        distancia_trasera_cm = suma / validos;
-      } else {
-        distancia_trasera_cm = -1.0;
-      }
-      
-      // Detección de emergencia
-      if (distancia_trasera_cm > 0 && distancia_trasera_cm < DISTANCIA_EMERGENCIA_CM) {
-        if (velocidadActual != 0) {
-          velocidadActual = 0;
-          aplicarComandos();
-        }
-      }
-    } else {
-      distancia_trasera_cm = -1.0;
-    }
+  long duration_frontal = pulseIn(PIN_ECHO_FRONTAL, HIGH, 30000);
+  if (duration_frontal > 0) {
+    distancia_frontal_cm = duration_frontal * 0.034f / 2.0f;
+  } else {
+    distancia_frontal_cm = -1.0;
   }
 }
