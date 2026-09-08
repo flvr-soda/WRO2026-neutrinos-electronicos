@@ -18,7 +18,7 @@ fi
 
 # Ejecutar sistema alternativo
 echo "Iniciando sistema alternativo (modo dinámico)..."
-cd safety_sys
+cd ../safety_sys
 python3 main.py
 
 # Desactivar entorno virtual al salir
