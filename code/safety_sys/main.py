@@ -17,7 +17,11 @@ import struct
 import serial
 import logging
 import argparse
+import os
 from typing import Optional, Tuple
+
+# Configurar pin factory pigpio para eliminar jitter del servo
+os.environ['GPIOZERO_PIN_FACTORY'] = 'pigpio'
 
 # ==============================================================================
 # IMPORTS CONDICIONALES DE HARDWARE
@@ -45,14 +49,15 @@ except ImportError:
 
 # Pines GPIO (Raspberry Pi BCM)
 PIN_BOTON_INICIO = 17       # Switch de retención físico (Pin físico 11)
-PIN_SERVO_LIDAR = 18        # Servo SG90 LiDAR (Pin físico 12)
+PIN_SERVO_SCANNER = 18      # Servo SG90 para escaneo ultrasónico (Pin físico 12)
 ANGULO_SERVO_CENTRO = 90    # 90° = Centrado frontal
 ANGULO_SERVO_DERECHA = 40   # Vista lateral derecha para autodetección
 ANGULO_SERVO_IZQUIERDA = 140 # Vista lateral izquierda para autodetección
+# Pines para sensor ultrasónico HC-SR04
+PIN_ULTRASONICO_TRIGGER = 23  # Pin físico 16
+PIN_ULTRASONICO_ECHO = 24     # Pin físico 18
 
 # Puertos Seriales y Velocidades
-PUERTO_LIDAR = "/dev/serial0"
-BAUD_LIDAR = 115200
 BAUD_ARDUINO = 115200
 
 # Meta de Carrera
@@ -75,10 +80,10 @@ ANG_IZQUIERDA = 270
 MODO_ABIERTO = "ABIERTO"
 MODO_OBSTACULOS = "OBSTACULOS"
 
-# Umbrales LiDAR (cm)
-DISTANCIA_ESQUINA_CM = 80.0       # Distancia a pared frontal para iniciar giro
-DISTANCIA_OBSTACULO_CM = 48.0     # Distancia a pilar para iniciar maniobra esquiva
-DISTANCIA_DESPEJADA_CM = 100.0    # Distancia para dar por concluido un giro
+# Umbrales Sensor Ultrasónico (cm)
+DISTANCIA_ESQUINA_CM = 60.0       # Distancia a pared frontal para iniciar giro
+DISTANCIA_OBSTACULO_CM = 35.0     # Distancia a pilar para iniciar maniobra esquiva
+DISTANCIA_DESPEJADA_CM = 80.0     # Distancia para dar por concluido un giro
 
 # Tiempos de Control (segundos)
 DURACION_MIN_GIRO = 0.8
@@ -109,12 +114,12 @@ logger = logging.getLogger("SAFETY_SYS")
 
 
 # ==============================================================================
-# 1. DRIVER SERVO LIDAR SG90 (GPIO 18)
+# 1. DRIVER SERVO SCANNER SG90 (GPIO 18)
 # ==============================================================================
 
-class LidarServoDriver:
-    """Controla el servo SG90 para mantener el LiDAR alineado al frente o hacer paneos de autodetección."""
-    def __init__(self, pin: int = PIN_SERVO_LIDAR, angulo_centro: int = ANGULO_SERVO_CENTRO):
+class ServoScanner:
+    """Controla el servo SG90 para escanear con el sensor ultrasónico (centrado, izquierda. derecha)."""
+    def __init__(self, pin: int = PIN_SERVO_SCANNER, angulo_centro: int = ANGULO_SERVO_CENTRO):
         self.pin = pin
         self.angulo_centro = angulo_centro
         self.servo = None
@@ -133,9 +138,9 @@ class LidarServoDriver:
                 max_pulse_width=0.0025,
                 initial_angle=self.angulo_centro
             )
-            logger.info(f"[Servo LiDAR] ✓ Inicializado en GPIO {self.pin} (Centro: {self.angulo_centro}°)")
+            logger.info(f"[Servo Scanner] ✓ Inicializado en GPIO {self.pin} (Centro: {self.angulo_centro}°)")
         except Exception as e:
-            logger.warning(f"[Servo LiDAR] Error al inicializar en GPIO {self.pin}: {e}")
+            logger.warning(f"[Servo Scanner] Error al inicializar en GPIO {self.pin}: {e}")
             self.servo = None
 
     def centrar(self):
@@ -149,7 +154,7 @@ class LidarServoDriver:
                 logger.debug(f"[Servo LiDAR] Error moviendo servo: {e}")
 
     def test_movimiento(self):
-        logger.info("[Servo LiDAR] Probando movimiento (45° -> 135° -> 90°)...")
+        logger.info("[Servo Scanner] Probando movimiento (45° -> 135° -> 90°)...")
         for ang in [45, 135, 90]:
             self.mover(ang)
             time.sleep(0.3)
@@ -166,60 +171,80 @@ class LidarServoDriver:
 
 
 # ==============================================================================
-# 2. DRIVER SERIAL TF-LUNA LIDAR DIRECTO (UART /dev/serial0)
+# 2. DRIVER SENSOR ULTRASÓNICO HC-SR04 (GPIO)
 # ==============================================================================
 
-class DirectLidar:
-    """Manejo serial directo y de baja latencia del sensor TF-Luna (basado en script funcional)."""
-    def __init__(self, port: str = PUERTO_LIDAR, baudrate: int = BAUD_LIDAR):
-        self.port = port
-        self.baudrate = baudrate
-        self.conn = None
+class UltrasonicSensor:
+    """Driver para sensor ultrasónico HC-SR04 usando GPIO."""
+    def __init__(self, trigger_pin: int = PIN_ULTRASONICO_TRIGGER, echo_pin: int = PIN_ULTRASONICO_ECHO):
+        self.trigger_pin = trigger_pin
+        self.echo_pin = echo_pin
+        self.trigger = None
+        self.echo = None
         self.ultima_distancia = 300.0
-        self.ultima_fuerza = 0
-        self.timestamp_ultima_lectura = 0.0
-        self.conectar()
+        self._inicializar()
 
-    def conectar(self):
+    def _inicializar(self):
+        if not GPIO_DISPONIBLE:
+            logger.warning("[Ultrasonido] gpiozero no disponible - modo simulado")
+            return
         try:
-            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.02)
-            logger.info(f"[LiDAR UART] ✓ Conectado en {self.port} a {self.baudrate} bps")
+            from gpiozero import DigitalOutputDevice, InputDevice
+            self.trigger = DigitalOutputDevice(self.trigger_pin)
+            self.echo = InputDevice(self.echo_pin)
+            logger.info(f"[Ultrasonido] ✓ Inicializado en GPIO TRIGGER={self.trigger_pin}, ECHO={self.echo_pin}")
         except Exception as e:
-            logger.error(f"[LiDAR UART] ✗ Error al conectar en {self.port}: {e}")
-            self.conn = None
+            logger.warning(f"[Ultrasonido] Error al inicializar: {e}")
+            self.trigger = None
+            self.echo = None
 
     def leer_distancia_cm(self) -> float:
         """
-        Lee el buffer serial y parsea la trama estándar de 9 bytes del TF-Luna.
-        Cabecera: 0x59 0x59
-        Retorna la distancia en cm o -1.0 si no hay lectura válida.
+        Lee distancia usando el sensor ultrasónico HC-SR04.
+        Retorna distancia en cm o -1.0 si no hay lectura válida.
         """
-        if not self.conn or not self.conn.is_open:
+        if not self.trigger or not self.echo:
             return -1.0
 
         try:
-            bytes_esperando = self.conn.in_waiting
-            if bytes_esperando >= 9:
-                data = self.conn.read(bytes_esperando)
-                # Recorrer desde el final hacia el principio para obtener la lectura más reciente
-                for i in range(len(data) - 8 - 1, -1, -1):
-                    if data[i] == 0x59 and data[i+1] == 0x59:
-                        frame = data[i:i+9]
-                        if len(frame) == 9:
-                            dist_cm = struct.unpack('<H', frame[2:4])[0]
-                            calidad = frame[1]
-                            # Calidad > 15 asegura señal real (0 = sin señal, no válido)
-                            if dist_cm > 0 and calidad > 15:
-                                self.ultima_distancia = float(dist_cm)
-                                self.ultima_fuerza = calidad
-                                self.timestamp_ultima_lectura = time.monotonic()
-                                return float(dist_cm)
+            # Enviar pulso trigger
+            self.trigger.off()
+            time.sleep(0.00001)
+            self.trigger.on()
+            time.sleep(0.00001)
+            self.trigger.off()
+
+            # Medir tiempo de echo
+            start_time = time.monotonic()
+            timeout = start_time + 0.04  # Timeout 40ms (máximo ~6.8m)
+            
+            while not self.echo.is_active and time.monotonic() < timeout:
+                pass
+            
+            pulse_start = time.monotonic()
+            
+            while self.echo.is_active and time.monotonic() < timeout:
+                pass
+            
+            pulse_end = time.monotonic()
+            
+            pulse_duration = pulse_end - pulse_start
+            
+            # Calcular distancia: velocidad sonido = 34300 cm/s
+            # Distancia = (tiempo * velocidad) / 2 (ida y vuelta)
+            distancia = (pulse_duration * 34300) / 2
+            
+            # Filtrar lecturas inválidas
+            if 2.0 <= distancia <= 400.0:  # Rango típico HC-SR04: 2cm a 400cm
+                self.ultima_distancia = distancia
+                return distancia
+            
         except Exception as e:
-            logger.debug(f"[LiDAR UART] Error en lectura: {e}")
+            logger.debug(f"[Ultrasonido] Error en lectura: {e}")
 
         return -1.0
 
-    def medir_promedio(self, muestras: int = 4, pausa: float = 0.03) -> float:
+    def medir_promedio(self, muestras: int = 3, pausa: float = 0.02) -> float:
         """Toma varias lecturas consecutivas y devuelve el promedio de distancias válidas."""
         lecturas = []
         for _ in range(muestras):
@@ -227,12 +252,17 @@ class DirectLidar:
             if d > 0:
                 lecturas.append(d)
             time.sleep(pausa)
-        return float(np.mean(lecturas)) if (lecturas and np is not None) else (sum(lecturas)/len(lecturas) if lecturas else -1.0)
+        return sum(lecturas)/len(lecturas) if lecturas else -1.0
 
     def cerrar(self):
-        if self.conn and self.conn.is_open:
+        if self.trigger:
             try:
-                self.conn.close()
+                self.trigger.close()
+            except Exception:
+                pass
+        if self.echo:
+            try:
+                self.echo.close()
             except Exception:
                 pass
 
@@ -409,8 +439,8 @@ class SafetyRunner:
 
     def __init__(self):
         logger.info("=== Inicializando Safety System (MVP) ===")
-        self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
-        self.servo_lidar = LidarServoDriver(PIN_SERVO_LIDAR, ANGULO_SERVO_CENTRO)
+        self.ultrasonido = UltrasonicSensor(PIN_ULTRASONICO_TRIGGER, PIN_ULTRASONICO_ECHO)
+        self.servo_scanner = ServoScanner(PIN_SERVO_SCANNER, ANGULO_SERVO_CENTRO)
         self.arduino = ArduinoDriver(BAUD_ARDUINO)
         self.vision = VisionColorDetector(CAMARA_INDEX)
         self.boton = None
@@ -447,17 +477,17 @@ class SafetyRunner:
         logger.info("[AUTODETECCIÓN] Escaneando apertura lateral de la pista...")
         
         # 1. Medir a la DERECHA
-        self.servo_lidar.mover(ANGULO_SERVO_DERECHA)
+        self.servo_scanner.mover(ANGULO_SERVO_DERECHA)
         time.sleep(0.18)
-        dist_der = self.lidar.medir_promedio(muestras=4)
+        dist_der = self.ultrasonido.medir_promedio(muestras=3)
         
         # 2. Medir a la IZQUIERDA
-        self.servo_lidar.mover(ANGULO_SERVO_IZQUIERDA)
+        self.servo_scanner.mover(ANGULO_SERVO_IZQUIERDA)
         time.sleep(0.18)
-        dist_izq = self.lidar.medir_promedio(muestras=4)
+        dist_izq = self.ultrasonido.medir_promedio(muestras=3)
         
         # 3. Volver de inmediato al centro
-        self.servo_lidar.centrar()
+        self.servo_scanner.centrar()
         
         logger.info(f"[AUTODETECCIÓN] Lecturas laterales -> Derecha: {dist_der:.0f}cm | Izquierda: {dist_izq:.0f}cm")
         
@@ -477,14 +507,14 @@ class SafetyRunner:
         """Modo Standby: Centra servo y espera el switch físico o tecla ENTER."""
         logger.info("--------------------------------------------------")
         logger.info("[STANDBY] Robot listo en zona de salida. Esperando señal de arranque...")
-        self.servo_lidar.centrar()
+        self.servo_scanner.centrar()
         self.arduino.frenar()
 
-        d = self.lidar.leer_distancia_cm()
+        d = self.ultrasonido.leer_distancia_cm()
         if d > 0:
-            logger.info(f"[LiDAR] ✓ Señal activa: {d:.0f} cm | Fuerza: {self.lidar.ultima_fuerza}")
+            logger.info(f"[Ultrasonido] ✓ Señal activa: {d:.0f} cm")
         else:
-            logger.warning("[LiDAR] ⚠️ Esperando primeras tramas del sensor TF-Luna...")
+            logger.warning("[Ultrasonido] ⚠️ Esperando primeras lecturas del sensor HC-SR04...")
 
         if self.boton is not None:
             estado_previo = self.boton.is_pressed
@@ -526,15 +556,15 @@ class SafetyRunner:
         # 1. Telemetría no bloqueante
         self.arduino.leer_telemetria_no_bloqueante()
 
-        # 2. Lectura LiDAR
-        d = self.lidar.leer_distancia_cm()
+        # 2. Lectura Ultrasonido
+        d = self.ultrasonido.leer_distancia_cm()
         if d > 0:
             self.distancia_actual = d
             self.tiempo_ultimo_lidar_ok = ahora
         else:
             tiempo_sin_sensor = ahora - self.tiempo_ultimo_lidar_ok
             if tiempo_sin_sensor > TIMEOUT_LIDAR_FAILSAFE:
-                logger.warning(f"[FAIL-SAFE] ⚠️ Sin señal LiDAR por {tiempo_sin_sensor:.1f}s")
+                logger.warning(f"[FAIL-SAFE] ⚠️ Sin señal ultrasonido por {tiempo_sin_sensor:.1f}s")
                 if tiempo_sin_sensor > 4.0:
                     logger.critical("[FAIL-SAFE] ¡Pérdida crítica de sensor! Frenando.")
                     self.arduino.frenar()
@@ -629,7 +659,7 @@ class SafetyRunner:
             self.tiempo_ultima_esquina = time.monotonic()
             self.tiempo_ultimo_lidar_ok = time.monotonic()
             
-            self.servo_lidar.centrar()
+            self.servo_scanner.centrar()
             self.arduino.enviar(VEL_CRUCERO, ANG_RECTO)
 
             boton_estado_previo = self.boton.is_pressed if self.boton else None
@@ -678,8 +708,8 @@ class SafetyRunner:
     def limpiar(self):
         logger.info("Cerrando subsistemas y liberando hardware...")
         self.arduino.cerrar()
-        self.servo_lidar.cerrar()
-        self.lidar.cerrar()
+        self.servo_scanner.cerrar()
+        self.ultrasonido.cerrar()
         self.vision.cerrar()
         logger.info("Safety System finalizado.")
 
@@ -693,28 +723,28 @@ def autodiagnostico():
     print("   WRO 2026 - SAFETY SYSTEM HARDWARE SELF-TEST")
     print("=" * 60)
 
-    # 1. Servo LiDAR
-    print("\n[1/4] Probando Servo SG90 LiDAR en GPIO 18...")
-    s = LidarServoDriver()
+    # 1. Servo Scanner
+    print("\n[1/4] Probando Servo SG90 Scanner en GPIO 18...")
+    s = ServoScanner()
     s.test_movimiento()
     print("   ✓ Servo centrado a 90°.")
 
-    # 2. LiDAR TF-Luna
-    print("\n[2/4] Probando sensor LiDAR TF-Luna en /dev/serial0...")
-    lidar = DirectLidar()
+    # 2. Sensor Ultrasónico HC-SR04
+    print("\n[2/4] Probando sensor ultrasónico HC-SR04 en GPIO 23/24...")
+    ultrasonido = UltrasonicSensor()
     t0 = time.time()
     lecturas = 0
     while time.time() - t0 < 2.5:
-        d = lidar.leer_distancia_cm()
+        d = ultrasonido.leer_distancia_cm()
         if d > 0:
             lecturas += 1
-            print(f"   -> Distancia: {d:5.1f} cm | Fuerza: {lidar.ultima_fuerza:4d}      ", end='\r')
+            print(f"   -> Distancia: {d:5.1f} cm      ", end='\r')
         time.sleep(0.04)
     print()
     if lecturas > 0:
-        print(f"   ✓ LiDAR operativo ({lecturas} lecturas válidas).")
+        print(f"   ✓ Ultrasonido operativo ({lecturas} lecturas válidas).")
     else:
-        print("   ✗ No se recibieron lecturas válidas de TF-Luna.")
+        print("   ✗ No se recibieron lecturas válidas de HC-SR04.")
 
     # 3. Arduino
     print("\n[3/4] Probando Arduino UNO...")
@@ -744,7 +774,7 @@ def autodiagnostico():
 
     # Limpieza
     s.cerrar()
-    lidar.cerrar()
+    ultrasonido.cerrar()
     ard.cerrar()
     vis.cerrar()
     print("\n" + "=" * 60)

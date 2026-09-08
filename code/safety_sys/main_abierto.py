@@ -17,6 +17,10 @@ import glob
 import struct
 import serial
 import logging
+import os
+
+# Configurar pin factory pigpio para eliminar jitter del servo
+os.environ['GPIOZERO_PIN_FACTORY'] = 'pigpio'
 
 try:
     from gpiozero import Button
@@ -25,14 +29,14 @@ except ImportError:
 
 # CONFIGURACIÓN DIRECTA
 
-# Conexiones seriales
-PUERTO_LIDAR = "/dev/serial0"
-BAUD_LIDAR = 115200
-BAUD_ARDUINO = 115200
+# Pines GPIO (Raspberry Pi BCM)
+PIN_BOTON_INICIO = 17       # Switch de retención físico (Pin físico 11)
+# Pines para sensor ultrasónico HC-SR04
+PIN_ULTRASONICO_TRIGGER = 23  # Pin físico 16
+PIN_ULTRASONICO_ECHO = 24     # Pin físico 18
 
-# Botón de inicio físico (Regla WRO 9.11)
-# Compartido con el sistema principal - GPIO 17 (Pin físico 11)
-PIN_BOTON_INICIO = 17
+# Conexiones seriales
+BAUD_ARDUINO = 115200
 
 # Parámetros de navegación
 VUELTAS_OBJETIVO = 3
@@ -47,9 +51,9 @@ VELOCIDAD_GIRO = 45       # Velocidad durante el viraje en esquina
 ANGULO_DIRECCION_RECTO = 90
 ANGULO_GIRO_DERECHA = 50   # Ángulo para girar a la derecha
 
-# Umbrales de distancia LiDAR (en cm)
-DISTANCIA_GIRO_CM = 75.0      # Distancia a la pared frontal para iniciar el giro
-DISTANCIA_DESPEJADA_CM = 110.0 # Distancia a la que se considera la pista despejada tras el giro
+# Umbrales de distancia Sensor Ultrasónico (en cm)
+DISTANCIA_GIRO_CM = 50.0      # Distancia a la pared frontal para iniciar el giro
+DISTANCIA_DESPEJADA_CM = 80.0 # Distancia a la que se considera la pista despejada tras el giro
 
 # Tiempos de control
 DURACION_MAX_GIRO_SEG = 1.6   # Tiempo máximo de giro forzado por esquina si la distancia tarda en despejarse
@@ -63,54 +67,85 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EMERGENCIA_LIDAR")
 
-# DRIVER SERIAL TF-LUNA LIDAR DIRECTO
-class DirectLidar:
-    """Manejo serial directo y de baja latencia del sensor TF-Luna."""
-    def __init__(self, port=PUERTO_LIDAR, baudrate=BAUD_LIDAR):
-        self.port = port
-        self.baudrate = baudrate
-        self.conn = None
-        self.conectar()
+# DRIVER SENSOR ULTRASÓNICO HC-SR04 (GPIO)
+class UltrasonicSensor:
+    """Driver para sensor ultrasónico HC-SR04 usando GPIO."""
+    def __init__(self, trigger_pin: int = PIN_ULTRASONICO_TRIGGER, echo_pin: int = PIN_ULTRASONICO_ECHO):
+        self.trigger_pin = trigger_pin
+        self.echo_pin = echo_pin
+        self.trigger = None
+        self.echo = None
+        self.ultima_distancia = 300.0
+        self._inicializar()
 
-    def conectar(self):
+    def _inicializar(self):
         try:
-            self.conn = serial.Serial(self.port, self.baudrate, timeout=0.02)
-            logger.info(f"LiDAR TF-Luna conectado en {self.port}")
+            from gpiozero import DigitalOutputDevice, InputDevice
+            self.trigger = DigitalOutputDevice(self.trigger_pin)
+            self.echo = InputDevice(self.echo_pin)
+            logger.info(f"[Ultrasonido] ✓ Inicializado en GPIO TRIGGER={self.trigger_pin}, ECHO={self.echo_pin}")
         except Exception as e:
-            logger.error(f"Error al abrir puerto LiDAR {self.port}: {e}")
-            self.conn = None
+            logger.warning(f"[Ultrasonido] Error al inicializar: {e}")
+            self.trigger = None
+            self.echo = None
 
     def leer_distancia_cm(self) -> float:
         """
-        Lee el buffer serial y parsea la trama estándar de 9 bytes del TF-Luna.
-        Cabecera: 0x59 0x59
-        Retorna la distancia en cm o -1.0 si no hay lectura válida.
+        Lee distancia usando el sensor ultrasónico HC-SR04.
+        Retorna distancia en cm o -1.0 si no hay lectura válida.
         """
-        if not self.conn or not self.conn.is_open:
+        if not self.trigger or not self.echo:
             return -1.0
 
         try:
-            bytes_esperando = self.conn.in_waiting
-            if bytes_esperando >= 9:
-                data = self.conn.read(bytes_esperando)
-                # Recorrer desde el final hacia el principio para obtener la lectura más reciente
-                for i in range(len(data) - 8 - 1, -1, -1):
-                    if data[i] == 0x59 and data[i+1] == 0x59:
-                        frame = data[i:i+9]
-                        if len(frame) == 9:
-                            dist_cm = struct.unpack('<H', frame[2:4])[0]
-                            calidad = frame[1]
-                            # Calidad > 15 asegura señal real (0 = sin señal, no válido)
-                            if dist_cm > 0 and calidad > 15:
-                                return float(dist_cm)
+            # Enviar pulso trigger
+            self.trigger.off()
+            time.sleep(0.00001)
+            self.trigger.on()
+            time.sleep(0.00001)
+            self.trigger.off()
+
+            # Medir tiempo de echo
+            start_time = time.monotonic()
+            timeout = start_time + 0.04  # Timeout 40ms (máximo ~6.8m)
+            
+            while not self.echo.is_active and time.monotonic() < timeout:
+                pass
+            
+            pulse_start = time.monotonic()
+            
+            while self.echo.is_active and time.monotonic() < timeout:
+                pass
+            
+            pulse_end = time.monotonic()
+            
+            pulse_duration = pulse_end - pulse_start
+            
+            # Calcular distancia: velocidad sonido = 34300 cm/s
+            # Distancia = (tiempo * velocidad) / 2 (ida y vuelta)
+            distancia = (pulse_duration * 34300) / 2
+            
+            # Filtrar lecturas inválidas
+            if 2.0 <= distancia <= 400.0:  # Rango típico HC-SR04: 2cm a 400cm
+                self.ultima_distancia = distancia
+                return distancia
+            
         except Exception as e:
-            logger.debug(f"Error al leer trama LiDAR: {e}")
+            logger.debug(f"[Ultrasonido] Error en lectura: {e}")
 
         return -1.0
 
     def cerrar(self):
-        if self.conn and self.conn.is_open:
-            self.conn.close()
+        if self.trigger:
+            try:
+                self.trigger.close()
+            except Exception:
+                pass
+        if self.echo:
+            try:
+                self.echo.close()
+            except Exception:
+                pass
 
 # DRIVER SERIAL ARDUINO DIRECTO
 class DirectArduino:
@@ -195,7 +230,7 @@ class DirectArduino:
 class EmergencyLidarRunner:
     def __init__(self):
         logger.info("Inicializando componentes del Sistema de Emergencia...")
-        self.lidar = DirectLidar(PUERTO_LIDAR, BAUD_LIDAR)
+        self.ultrasonido = UltrasonicSensor(PIN_ULTRASONICO_TRIGGER, PIN_ULTRASONICO_ECHO)
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.boton = None
 
@@ -309,8 +344,8 @@ class EmergencyLidarRunner:
                             carrera_detenida = True
                             break  # Salir del loop de carrera
 
-                    # 1. Leer distancia frontal del LiDAR
-                    distancia = self.lidar.leer_distancia_cm()
+                    # 1. Leer distancia frontal del ultrasonido
+                    distancia = self.ultrasonido.leer_distancia_cm()
                     if distancia > 0:
                         self.ultima_distancia_valida = distancia
 
@@ -395,8 +430,8 @@ class EmergencyLidarRunner:
             self.arduino.frenar()
             time.sleep(0.1)
             self.arduino.cerrar()
-        if self.lidar:
-            self.lidar.cerrar()
+        if self.ultrasonido:
+            self.ultrasonido.cerrar()
         # No cerrar el botón GPIO si estamos en loop principal para múltiples carreras
         # Solo cerrarlo cuando realmente termine el programa
         logger.info("Sistema de emergencia finalizado con éxito.")
