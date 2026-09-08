@@ -480,16 +480,21 @@ class EmergencyUltrasonicRunner:
                         logger.info("[STOP] Switch cambiado de estado - Deteniendo carrera")
                         self.arduino.frenar()
                         
-                        logger.info("[REINICIO] Reiniciando carrera...")
-                        time.sleep(1.0)
+                        # Esperar otro cambio de estado para reiniciar
+                        logger.info("[ESPERA] Esperando otro cambio de estado para reiniciar...")
+                        while self.boton.is_pressed == boton_estado_actual:
+                            time.sleep(0.1)
+                        
+                        logger.info("[REINICIO] Switch cambiado nuevamente - Reiniciando carrera...")
+                        time.sleep(0.5)
                         
                         # Reiniciar estado
                         self.esquinas_completadas = 0
                         self.en_giro = False
                         self.tiempo_inicio_giro = 0.0
-                        self.tiempo_ultima_esquina = ahora
+                        self.tiempo_ultima_esquina = time.monotonic()
                         self.ultima_distancia_valida = 300.0
-                        self.boton_estado_anterior = boton_estado_actual
+                        self.boton_estado_anterior = self.boton.is_pressed
                         self.sentido_giro = None
                         self.primera_esquina = True
                         
