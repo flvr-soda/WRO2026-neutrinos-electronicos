@@ -18,16 +18,17 @@ import serial
 import logging
 import os
 
-# Configurar pin factory native (más simple que rpi-gpio)
-os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
+# Configurar pin factory RPi.GPIO (necesario para PWM en servo)
+os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
 
 try:
-    from gpiozero import Button, DigitalOutputDevice, InputDevice, AngularServo
+    from gpiozero import DigitalOutputDevice, InputDevice, AngularServo
+    import RPi.GPIO as GPIO
 except ImportError:
-    Button = None
     DigitalOutputDevice = None
     InputDevice = None
     AngularServo = None
+    GPIO = None
 
 # CONFIGURACIÓN DIRECTA
 
@@ -78,6 +79,44 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 logger = logging.getLogger("EMERGENCIA_ULTRASONICO")
+
+# DRIVER BOTÓN MANUAL (polling sin edge detection)
+class ManualButton:
+    """Botón con polling manual para evitar problemas de edge detection."""
+    def __init__(self, pin, pull_up=True):
+        self.pin = pin
+        self.pull_up = pull_up
+        self._inicializar()
+
+    def _inicializar(self):
+        if GPIO is None:
+            logger.warning("RPi.GPIO no disponible para botón manual")
+            return
+        try:
+            GPIO.setmode(GPIO.BCM)
+            if self.pull_up:
+                GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            else:
+                GPIO.setup(self.pin, GPIO.IN)
+            logger.info(f"Botón manual inicializado en GPIO {self.pin}")
+        except Exception as e:
+            logger.warning(f"Error inicializando botón manual: {e}")
+
+    @property
+    def is_pressed(self):
+        if GPIO is None:
+            return False
+        try:
+            return GPIO.input(self.pin) == GPIO.LOW if self.pull_up else GPIO.input(self.pin) == GPIO.HIGH
+        except Exception:
+            return False
+
+    def close(self):
+        if GPIO is not None:
+            try:
+                GPIO.cleanup(self.pin)
+            except Exception:
+                pass
 
 # DRIVER SENSOR ULTRASÓNICO HC-SR04
 class UltrasonicSensor:
@@ -296,10 +335,10 @@ class EmergencyUltrasonicRunner:
         self.arduino = DirectArduino(BAUD_ARDUINO)
         self.boton = None
 
-        # Inicializar Botón de Inicio físico (GPIO 17)
-        if Button is not None:
+        # Inicializar Botón de Inicio físico (GPIO 17) usando polling manual
+        if GPIO is not None:
             try:
-                self.boton = Button(PIN_BOTON_INICIO, pull_up=True, bounce_time=0.1)
+                self.boton = ManualButton(PIN_BOTON_INICIO, pull_up=True)
                 logger.info(f"Pulsador de retención configurado en GPIO {PIN_BOTON_INICIO} (Pin físico 11)")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar pulsador de retención en GPIO {PIN_BOTON_INICIO}: {e}")
