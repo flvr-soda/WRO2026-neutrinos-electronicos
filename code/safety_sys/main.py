@@ -18,8 +18,8 @@ import serial
 import logging
 import os
 
-# Configurar pin factory RPi.GPIO
-os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
+# Configurar pin factory native (más simple que rpi-gpio)
+os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
 
 try:
     from gpiozero import Button, DigitalOutputDevice, InputDevice, AngularServo
