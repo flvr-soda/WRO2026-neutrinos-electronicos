@@ -47,10 +47,10 @@ static unsigned long ultimoTelemetriaMs = 0;
 const unsigned long SENSORES_INTERVALO_MS = 10;
 const unsigned long TELEMETRIA_INTERVALO_MS = 100;
 
-// Ángulos predefinidos para comandos simples
+// Ángulos predefinidos para comandos simples (rango completo SG90: 0-180°)
 const int ANGULO_CENTRO = 90;
-const int ANGULO_DERECHA = 70;
-const int ANGULO_IZQUIERDA = 110;
+const int ANGULO_DERECHA = 0;    // Extrema derecha
+const int ANGULO_IZQUIERDA = 180; // Extrema izquierda
 
 // ============================================================
 // INICIALIZACIÓN
@@ -186,7 +186,7 @@ void initMotores() {
 }
 
 void aplicarComandos() {
-  int anguloSeguro = constrain(anguloActual, 40, 140);
+  int anguloSeguro = constrain(anguloActual, 0, 180); // Rango completo SG90
   servoDireccion.write(anguloSeguro);
   
   if (velocidadActual == 0) {

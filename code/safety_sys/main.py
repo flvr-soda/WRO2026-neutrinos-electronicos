@@ -45,8 +45,8 @@ PIN_ULTRASONICO_ECHO = 24
 # Servo del ultrasónico para paneo
 PIN_SERVO_ULTRASONICO = 18
 ANGULO_SERVO_CENTRO = 90
-ANGULO_SERVO_IZQUIERDA = 140
-ANGULO_SERVO_DERECHA = 40
+ANGULO_SERVO_IZQUIERDA = 180
+ANGULO_SERVO_DERECHA = 0
 
 # Botón de inicio físico (Regla WRO 9.11)
 # Compartido con el sistema principal - GPIO 17 (Pin físico 11)
@@ -61,10 +61,11 @@ TOTAL_ESQUINAS = VUELTAS_OBJETIVO * ESQUINAS_POR_VUELTA  # 12 esquinas en total
 VELOCIDAD_CRUCERO = 65    # Velocidad en tramos rectos
 VELOCIDAD_GIRO = 45       # Velocidad durante el viraje en esquina
 
-# Ángulos del servo de dirección del carro (valores Arduino)
+# Ángulos del servo de dirección del carro (valores Arduino - rango completo SG90)
+# Nota: Estos valores son referenciales, el firmware usa comandos simples (C/D/I)
 ANGULO_DIRECCION_RECTO = 90
-ANGULO_GIRO_DERECHA = 70   # Ángulo para girar a la derecha (ajustado)
-ANGULO_GIRO_IZQUIERDA = 110 # Ángulo para girar a la izquierda (ajustado)
+ANGULO_GIRO_DERECHA = 0   # Extrema derecha (0°)
+ANGULO_GIRO_IZQUIERDA = 180 # Extrema izquierda (180°)
 
 # Umbrales de distancia ultrasónico (en cm)
 DISTANCIA_GIRO_CM = 75.0      # Distancia a la pared frontal para iniciar el giro
