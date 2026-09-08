@@ -302,6 +302,43 @@ class DirectArduino:
         except Exception as e:
             logger.error(f"[ERROR] Error enviando comando a Arduino: {e}")
 
+    def enviar_direccion(self, direccion: str):
+        """Envía comando simple de dirección: C (centrar), D (derecha), I (izquierda)"""
+        if not self.conn or not self.conn.is_open:
+            logger.warning("Arduino no conectado, no se puede enviar comando de dirección")
+            return
+
+        if direccion not in ['C', 'D', 'I']:
+            logger.warning(f"Dirección inválida: {direccion}. Debe ser C, D o I")
+            return
+
+        comando = f"{direccion}\n"
+        try:
+            logger.info(f"[COMANDO] Dirección: {direccion}")
+            self.conn.write(comando.encode('utf-8'))
+            self.conn.flush()
+            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
+        except Exception as e:
+            logger.error(f"[ERROR] Error enviando comando de dirección: {e}")
+
+    def enviar_velocidad(self, velocidad: int):
+        """Envía comando simple de velocidad usando formato V:vel;A:90 (manteniendo dirección actual)"""
+        if not self.conn or not self.conn.is_open:
+            logger.warning("Arduino no conectado, no se puede enviar comando de velocidad")
+            return
+
+        # Clamp de seguridad
+        velocidad = max(-100, min(100, int(velocidad)))
+
+        comando = f"V:{velocidad};A:90\n"
+        try:
+            logger.info(f"[COMANDO] Velocidad: {velocidad}")
+            self.conn.write(comando.encode('utf-8'))
+            self.conn.flush()
+            logger.debug(f"[TX] Enviado a Arduino: {comando.strip()}")
+        except Exception as e:
+            logger.error(f"[ERROR] Error enviando comando de velocidad: {e}")
+
     def leer_telemetria(self):
         """Lee telemetría del Arduino en formato T:Z:x;A:y;U:z;"""
         if not self.conn or not self.conn.is_open:
@@ -319,7 +356,8 @@ class DirectArduino:
         return None
 
     def frenar(self):
-        self.enviar(0, ANGULO_DIRECCION_RECTO)
+        self.enviar_velocidad(0)
+        self.enviar_direccion('C')
 
     def cerrar(self):
         if self.conn and self.conn.is_open:
@@ -464,7 +502,8 @@ class EmergencyUltrasonicRunner:
         
         # Enviar comando inicial para arrancar motores
         logger.info("Enviando comando inicial de arranque...")
-        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+        self.arduino.enviar_velocidad(VELOCIDAD_CRUCERO)
+        self.arduino.enviar_direccion('C')
 
         try:
             counter = 0
@@ -501,7 +540,8 @@ class EmergencyUltrasonicRunner:
                         self.primera_esquina = True
                         
                         logger.info("[REINICIO] Carrera reiniciada. Continuando...")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        self.arduino.enviar_velocidad(VELOCIDAD_CRUCERO)
+                        self.arduino.enviar_direccion('C')
                         continue
 
                 # Leer telemetría del Arduino para verificar comunicación
@@ -541,17 +581,19 @@ class EmergencyUltrasonicRunner:
                         
                         # Determinar ángulo de giro según sentido detectado
                         if self.sentido_giro == 'izquierda':
-                            angulo_giro = ANGULO_GIRO_IZQUIERDA
+                            direccion_giro = 'I'
                         else:
-                            angulo_giro = ANGULO_GIRO_DERECHA
+                            direccion_giro = 'D'
                         
-                        logger.info(f"[GIRO] Girando a la {self.sentido_giro} (ángulo: {angulo_giro})")
-                        self.arduino.enviar(VELOCIDAD_GIRO, angulo_giro)
+                        logger.info(f"[GIRO] Girando a la {self.sentido_giro}")
+                        self.arduino.enviar_velocidad(VELOCIDAD_GIRO)
+                        self.arduino.enviar_direccion(direccion_giro)
                     else:
                         # Recta normal
                         if counter % 20 == 0:  # Log cada 20 iteraciones
-                            logger.info(f"[RECTA] Distancia: {dist:.1f} cm, Velocidad: {VELOCIDAD_CRUCERO}, Ángulo: {ANGULO_DIRECCION_RECTO}")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                            logger.info(f"[RECTA] Distancia: {dist:.1f} cm, Velocidad: {VELOCIDAD_CRUCERO}")
+                        self.arduino.enviar_velocidad(VELOCIDAD_CRUCERO)
+                        self.arduino.enviar_direccion('C')
 
                 else:
                     # En proceso de giro
@@ -566,10 +608,15 @@ class EmergencyUltrasonicRunner:
                     if giro_completado:
                         self.en_giro = False
                         logger.info(f"[FIN GIRO] Pista despejada ({dist:.1f} cm) en {tiempo_en_giro:.2f}s. Recta.")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        self.arduino.enviar_velocidad(VELOCIDAD_CRUCERO)
+                        self.arduino.enviar_direccion('C')
                     else:
-                        # Mantener viraje a la derecha
-                        self.arduino.enviar(VELOCIDAD_GIRO, ANGULO_GIRO_DERECHA)
+                        # Mantener viraje con la dirección actual
+                        self.arduino.enviar_velocidad(VELOCIDAD_GIRO)
+                        if self.sentido_giro == 'izquierda':
+                            self.arduino.enviar_direccion('I')
+                        else:
+                            self.arduino.enviar_direccion('D')
 
                 # Control de frecuencia
                 t_transcurrido = time.monotonic() - t_inicio_iter
@@ -605,7 +652,8 @@ class EmergencyUltrasonicRunner:
                         
                         # Reiniciar carrera
                         logger.info("=== REINICIANDO NAVEGACIÓN ===")
-                        self.arduino.enviar(VELOCIDAD_CRUCERO, ANGULO_DIRECCION_RECTO)
+                        self.arduino.enviar_velocidad(VELOCIDAD_CRUCERO)
+                        self.arduino.enviar_direccion('C')
                         self.run()  # Llamada recursiva para reiniciar
                         return
                     switch_state = current_state

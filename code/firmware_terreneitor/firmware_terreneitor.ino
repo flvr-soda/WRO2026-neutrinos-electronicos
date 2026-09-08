@@ -47,12 +47,10 @@ static unsigned long ultimoTelemetriaMs = 0;
 const unsigned long SENSORES_INTERVALO_MS = 10;
 const unsigned long TELEMETRIA_INTERVALO_MS = 100;
 
-// Modo de prueba de servo
-bool modoPruebaServo = false;
-unsigned long ultimoCambioServoMs = 0;
-int secuenciaServo = 0;
-const int angulosPrueba[] = {90, 70, 110, 40, 140, 90};
-const int numAngulosPrueba = 6;
+// Ángulos predefinidos para comandos simples
+const int ANGULO_CENTRO = 90;
+const int ANGULO_DERECHA = 70;
+const int ANGULO_IZQUIERDA = 110;
 
 // ============================================================
 // INICIALIZACIÓN
@@ -85,19 +83,6 @@ void loop() {
   }
 
   unsigned long ahora = millis();
-
-  // Modo prueba servo - ciclo automático de ángulos
-  if (modoPruebaServo) {
-    if (ahora - ultimoCambioServoMs >= 2000) {
-      ultimoCambioServoMs = ahora;
-      int angulo = angulosPrueba[secuenciaServo];
-      servoDireccion.write(angulo);
-      Serial.print("Prueba servo: ");
-      Serial.print(angulo);
-      Serial.println(" grados");
-      secuenciaServo = (secuenciaServo + 1) % numAngulosPrueba;
-    }
-  }
 
   // Lazo de sensores a frecuencia fija
   if (ahora - ultimoSensoresMs >= SENSORES_INTERVALO_MS) {
@@ -133,23 +118,26 @@ void chequearSerial() {
 void parsearComando(String comando) {
   comando.trim();
   
-  // Comando especial para activar modo prueba servo
-  if (comando == "PRUEBA_SERVO") {
-    modoPruebaServo = true;
-    secuenciaServo = 0;
-    ultimoCambioServoMs = millis();
-    Serial.println("MODO PRUEBA SERVO ACTIVADO");
-    return;
+  // Comandos simples de dirección (un solo carácter)
+  if (comando.length() == 1) {
+    char cmd = comando.charAt(0);
+    switch (cmd) {
+      case 'C':
+        anguloActual = ANGULO_CENTRO;
+        Serial.println("Comando: CENTRAR");
+        return;
+      case 'D':
+        anguloActual = ANGULO_DERECHA;
+        Serial.println("Comando: DERECHA");
+        return;
+      case 'I':
+        anguloActual = ANGULO_IZQUIERDA;
+        Serial.println("Comando: IZQUIERDA");
+        return;
+    }
   }
   
-  // Comando especial para desactivar modo prueba servo
-  if (comando == "NORMAL") {
-    modoPruebaServo = false;
-    servoDireccion.write(90);
-    Serial.println("MODO NORMAL ACTIVADO");
-    return;
-  }
-  
+  // Comando tradicional V:vel;A:ang (mantener compatibilidad)
   int idxV = comando.indexOf("V:");
   int idxA = comando.indexOf(";A:");
   
