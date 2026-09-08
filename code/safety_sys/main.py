@@ -24,6 +24,9 @@ os.environ['GPIOZERO_PIN_FACTORY'] = 'rpigpio'
 try:
     from gpiozero import DigitalOutputDevice, InputDevice, AngularServo
     import RPi.GPIO as GPIO
+    # Configurar modo BCM una sola vez al inicio
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
 except ImportError:
     DigitalOutputDevice = None
     InputDevice = None
@@ -93,7 +96,6 @@ class ManualButton:
             logger.warning("RPi.GPIO no disponible para botón manual")
             return
         try:
-            GPIO.setmode(GPIO.BCM)
             if self.pull_up:
                 GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             else:
